@@ -1,0 +1,13 @@
+uv run python api.py
+Using CPython 3.12.10
+Removed virtual environment at: .venv
+Creating virtual environment at: .venv
+Installed 59 packages in 103ms
+/Users/hk/local-dev/github/snarky-squirrel/.venv/lib/python3.12/site-packages/langgraph/checkpoint/base/__init__.py:18: LangChainPendingDeprecationWarning: The default value of `allowed_objects` will change in a future version. Pass an explicit value (e.g., allowed_objects='messages' or allowed_objects='core') to suppress this warning.
+  from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+Traceback (most recent call last):
+  File "/Users/hk/local-dev/github/snarky-squirrel/api.py", line 40, in <module>
+    import src.auth.cognito as _cognito
+  File "/Users/hk/local-dev/github/snarky-squirrel/src/auth/cognito.py", line 26, in <module>
+    from jose import jwk, jwt
+ModuleNotFoundError: No module named 'jose'

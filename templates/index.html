@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PR Review System</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>🐿️ Snarky Squirrel PR Reviewer</h1>
+  <p>Multi-agent AI code review</p>
+  <div style="display:flex;align-items:center;gap:12px;margin-left:auto">
+    <span id="auth-user" style="font-size:13px;opacity:0.75"></span>
+    <a id="auth-login-btn" href="/auth/login"  style="display:none;font-size:13px;padding:4px 12px;border:1px solid currentColor;border-radius:6px;text-decoration:none;opacity:0.8">Login</a>
+    <a id="auth-btn"       href="/auth/logout" style="display:none;font-size:13px;padding:4px 12px;border:1px solid currentColor;border-radius:6px;text-decoration:none;opacity:0.8">Sign out</a>
+  </div>
+  <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">☀️</button>
+</header>
+
+<!-- tab bar -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('review')">Review PR</button>
+  <button class="tab-btn" onclick="switchTab('db')">Storage</button>
+  <button class="tab-btn" onclick="switchTab('lineage')">Data Lineage</button>
+  <button class="tab-btn" onclick="switchTab('eval')">Metrics</button>
+</div>
+
+<!-- ════════════════════════════════════════
+     REVIEW TAB
+═══════════════════════════════════════════ -->
+<div id="tab-review" class="tab-panel active">
+
+  <!-- Shown only when auth is enabled and user is not logged in -->
+  <div id="auth-gate-banner" style="display:none" class="card" style="text-align:center;padding:18px 24px;border:1px solid var(--border)">
+    <span style="font-size:15px">🔒 <a href="/auth/login" style="color:var(--accent);font-weight:600">Login</a> to submit PR reviews and post comments to GitHub.</span>
+    <span style="font-size:13px;color:var(--muted);margin-left:8px">Past reviews below are public.</span>
+  </div>
+
+  <div id="review-submit-card" class="card">
+    <div class="input-row">
+      <input id="pr-url" type="url"
+             placeholder="https://github.com/owner/repo/pull/42"
+             autocomplete="off" />
+      <button id="review-btn" onclick="startReview()">Review PR</button>
+    </div>
+    <div class="post-toggle">
+      <input type="checkbox" id="post-comment" />
+      <label for="post-comment">Also post review comment to GitHub</label>
+    </div>
+  </div>
+
+  <div id="status">
+    <div class="spinner"></div>
+    <div id="stage-msg">Fetching PR metadata…</div>
+  </div>
+
+  <div id="review-error" class="error-box"></div>
+
+  <div id="results" class="card">
+    <div class="score-row">
+      <div id="score-circle" class="score-circle">—</div>
+      <div>
+        <div id="badges" class="badges"></div>
+        <div id="pr-link" style="margin-top:8px;font-size:13px;color:var(--muted)"></div>
+        <div id="run-thread-id" style="margin-top:6px;font-size:12px;color:var(--muted);font-family:monospace"></div>
+      </div>
+    </div>
+    <div id="score-breakdown" class="score-breakdown" style="display:none">
+      <h4>📊 Score Calculation</h4>
+      <table class="breakdown-table">
+        <tbody id="breakdown-rows"></tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3">Final score (clamped 0 – 10)</td>
+            <td id="breakdown-final">—</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <hr class="divider" />
+    <div id="review-body"></div>
+  </div>
+
+  <!-- ── All past reviews ── -->
+  <div class="past-reviews-head">
+    <h2>All PR Reviews</h2>
+    <button class="btn-ghost" onclick="loadPastReviews()">↻ Refresh</button>
+  </div>
+  <div id="past-reviews-error" class="error-box" style="margin-top:0"></div>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table class="db-table" style="font-size:13px">
+      <thead>
+        <tr>
+          <th style="max-width:240px">PR</th>
+          <th>Score</th>
+          <th>Duration</th>
+          <th>Date</th>
+          <th>Verdict</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="past-reviews-tbody">
+        <tr><td colspan="6"><div class="empty-state"><div class="big">⏳</div>Loading…</div></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════════════════
+     DB TAB
+═══════════════════════════════════════════ -->
+<div id="tab-db" class="tab-panel">
+  <div id="db-auth-gate" style="display:none;text-align:center;padding:48px 24px;color:var(--muted)">
+    <div style="font-size:32px;margin-bottom:12px">🔒</div>
+    <div style="font-size:16px;margin-bottom:8px">Login required to view agent storage records.</div>
+    <a href="/auth/login" style="color:var(--accent);font-weight:600;font-size:14px">Login →</a>
+  </div>
+  <div id="db-content" class="card">
+    <div class="db-header">
+      <div>
+        <h2 id="db-table-name" class="section-title">Agent storage</h2>
+        <div class="db-meta" id="db-meta">—</div>
+      </div>
+      <button class="btn-ghost" onclick="loadRecords()">↻ Refresh</button>
+    </div>
+    <div class="db-filter">
+      <input id="db-search" type="search" placeholder="Filter by thread ID, key, or value…"
+             oninput="applyFilter()" />
+    </div>
+    <div id="db-error" class="error-box"></div>
+    <div class="db-table-wrap">
+      <table class="db-table">
+        <thead>
+          <tr>
+            <th style="max-width:180px">Thread ID</th>
+            <th>Key</th>
+            <th style="max-width:320px">Value</th>
+            <th>TTL</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="db-tbody">
+          <tr><td colspan="5"><div class="empty-state"><div class="big">⏳</div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div><!-- /db-content -->
+</div>
+
+<!-- ════════════════════════════════════════
+     LINEAGE TAB
+═══════════════════════════════════════════ -->
+<div id="tab-lineage" class="tab-panel">
+  <div class="lineage-layout">
+
+    <div class="lineage-sidebar">
+      <div class="sidebar-head">
+        <span>Review Runs</span>
+        <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="loadLineageList()">↻</button>
+      </div>
+      <div id="lineage-error" class="error-box" style="margin-top:0;margin-bottom:10px"></div>
+      <div id="run-list" class="run-list">
+        <div class="empty-state"><div class="big">⏳</div>Loading…</div>
+      </div>
+    </div>
+
+    <div class="lineage-main">
+      <div id="lineage-empty" class="lineage-empty">
+        <div class="big">🔍</div>
+        <div>Select a run on the left to view its data lineage.</div>
+        <div style="margin-top:6px;font-size:12px">Run a PR review first if the list is empty.</div>
+      </div>
+
+      <div id="lineage-detail" style="display:none">
+
+        <div class="run-detail-head">
+          <div class="run-detail-title" id="ld-title">—</div>
+          <div class="run-detail-meta">
+            <span><b id="ld-thread">—</b></span>
+            <span>Score: <b id="ld-score">—</b></span>
+            <span>Total: <b id="ld-duration">—</b></span>
+            <span>Started: <b id="ld-started">—</b></span>
+            <span id="ld-block-badge" style="display:none;color:var(--red);font-weight:600">🚫 BLOCKED</span>
+          </div>
+        </div>
+
+        <div class="pipeline-section">
+          <div class="pipeline-label">Agent execution pipeline</div>
+          <div class="pipeline-flow" id="pipeline-flow"></div>
+        </div>
+
+        <div class="flow-legend">
+          <div class="flow-legend-title">Data flow between agents</div>
+          <div id="flow-rows"></div>
+        </div>
+
+        <div class="agent-detail" id="agent-detail">
+          <div class="agent-detail-title" id="ad-title">—</div>
+          <div class="detail-grid" id="ad-grid"></div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     METRICS TAB
+═══════════════════════════════════════════ -->
+<div id="tab-eval" class="tab-panel">
+
+  <div class="error-box" id="online-error"></div>
+
+  <div class="stat-grid" id="online-stats">
+    <div class="stat-card"><div class="stat-val">—</div><div class="stat-lbl">Total Reviews</div></div>
+    <div class="stat-card"><div class="stat-val">—</div><div class="stat-lbl">Avg Score</div></div>
+    <div class="stat-card"><div class="stat-val">—</div><div class="stat-lbl">Block Rate</div></div>
+    <div class="stat-card"><div class="stat-val">—</div><div class="stat-lbl">Avg Duration</div></div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <h4 class="section-title" style="margin-bottom:14px">Score Distribution</h4>
+    <div class="score-dist" id="online-dist">
+      <div class="dist-row"><span class="dist-lbl">9–10</span><div class="dist-track"><div class="dist-fill green" style="width:0%"></div></div><span class="dist-cnt">0</span></div>
+      <div class="dist-row"><span class="dist-lbl">7–8</span><div class="dist-track"><div class="dist-fill yellow" style="width:0%"></div></div><span class="dist-cnt">0</span></div>
+      <div class="dist-row"><span class="dist-lbl">5–6</span><div class="dist-track"><div class="dist-fill orange" style="width:0%"></div></div><span class="dist-cnt">0</span></div>
+      <div class="dist-row"><span class="dist-lbl">0–4</span><div class="dist-track"><div class="dist-fill red" style="width:0%"></div></div><span class="dist-cnt">0</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h4 class="section-title">Review History</h4>
+      <button class="btn-ghost" onclick="loadOnlineMetrics()">↻ Refresh</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="db-table">
+        <thead>
+          <tr>
+            <th>PR</th>
+            <th>Score</th>
+            <th>Duration</th>
+            <th>Date</th>
+            <th>Verdict</th>
+            <th>Feedback</th>
+          </tr>
+        </thead>
+        <tbody id="online-tbody">
+          <tr><td colspan="6"><div class="empty-state"><div class="big">⏳</div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /tab-eval -->
+
+<!-- ════════════════════════════════════════
+     VALUE MODAL
+═══════════════════════════════════════════ -->
+<div id="modal-overlay" class="modal-overlay" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modal-title">Record value</h3>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body"><pre id="modal-content"></pre></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     REVIEW DETAIL MODAL
+═══════════════════════════════════════════ -->
+<div id="review-detail-overlay" class="modal-overlay" onclick="closeReviewModal(event)">
+  <div class="modal" style="max-width:860px">
+    <div class="modal-head">
+      <div style="min-width:0">
+        <h3 id="rd-title" style="font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">PR Review</h3>
+        <div id="rd-meta" style="font-size:13px;color:var(--muted);margin-top:4px"></div>
+      </div>
+      <button class="modal-close" onclick="closeReviewModal(event)" style="margin-left:16px;flex-shrink:0">×</button>
+    </div>
+    <div class="modal-body" id="rd-body-wrap">
+      <!-- spinner shown while loading -->
+      <div id="rd-loading" style="text-align:center;padding:48px 0">
+        <div class="spinner"></div>
+        <div style="color:var(--muted);margin-top:12px">Loading review…</div>
+      </div>
+      <div id="rd-content" style="display:none">
+        <div class="score-row" style="margin-bottom:24px">
+          <div id="rd-score-circle" class="score-circle">—</div>
+          <div>
+            <div id="rd-badges" class="badges"></div>
+            <div id="rd-thread-id" style="margin-top:10px;font-size:12px;color:var(--muted);font-family:monospace"></div>
+          </div>
+        </div>
+        <div id="rd-breakdown"></div>
+        <hr class="divider" />
+        <div id="rd-report" style="font-size:15px;line-height:1.7"></div>
+      </div>
+      <div id="rd-error" class="error-box"></div>
+    </div>
+  </div>
+</div>
+
+<footer id="app-footer">Powered by LangGraph</footer>
+
+<script>
+// ════════════════════════════════════════════════
+// Theme
+// ════════════════════════════════════════════════
+
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.getAttribute("data-theme") === "light" ? "dark" : "light";
+  html.setAttribute("data-theme", next);
+  localStorage.setItem("theme", next);
+  document.querySelector(".theme-toggle").textContent = next === "light" ? "🌙" : "☀️";
+}
+
+(function initTheme() {
+  const saved = localStorage.getItem("theme") || "dark";
+  document.documentElement.setAttribute("data-theme", saved);
+  // icon set after DOM ready — querySelector runs at parse time here so btn exists
+  document.addEventListener("DOMContentLoaded", () => {
+    document.querySelector(".theme-toggle").textContent = saved === "light" ? "🌙" : "☀️";
+  });
+})();
+
+// ════════════════════════════════════════════════
+// Dynamic footer — reflects runtime environment
+// ════════════════════════════════════════════════
+
+(async function updateFooter() {
+  try {
+    const resp = await fetch("/health");
+    if (!resp.ok) return;
+    const h = await resp.json();
+
+    const provider = h.llm_provider || "ollama";
+    const model    = h.llm_model    || "";
+    const isLocal  = !!h.dynamodb_endpoint; // empty string → real AWS DynamoDB
+
+    // Shorten Bedrock cross-region model IDs to a readable name
+    // e.g. us.anthropic.claude-haiku-4-5-20251001-v1:0 → claude-haiku-4-5
+    function shortModel(m) {
+      if (provider !== "bedrock") return m;
+      return m
+        .replace(/^(us\.|eu\.|ap\.)?(anthropic\.|amazon\.|meta\.)?/, "")
+        .replace(/-\d{8}-v\d+:\d+.*$/, "");
+    }
+
+    const llmPart = {
+      ollama:        "Ollama · " + model,
+      "docker-model":"Docker Model Runner · " + model,
+      bedrock:       "AWS Bedrock · " + shortModel(model),
+    }[provider] || (provider + " · " + model);
+
+    const dbPart  = isLocal ? "DynamoDB Local" : "AWS DynamoDB";
+    const envPart = isLocal ? "Local"          : "AWS";
+
+    document.getElementById("app-footer").textContent =
+      envPart + " · " + llmPart + " · " + dbPart + " · LangGraph";
+  } catch (_) { /* keep default */ }
+})();
+
+// ── Auth state (global) ───────────────────────────────────────────────────────
+let isAuthenticated = false;  // true once /auth/me confirms a valid session
+
+(async function loadAuthUser() {
+  try {
+    const resp = await fetch("/auth/me");
+    const data = await resp.json();
+
+    if (!data.enabled) return; // local dev — no auth, everything open
+
+    if (data.user) {
+      // Logged in
+      isAuthenticated = true;
+      const userEl = document.getElementById("auth-user");
+      const btnEl  = document.getElementById("auth-btn");
+      if (userEl) userEl.textContent = data.user.email || data.user.name;
+      if (btnEl)  btnEl.style.display = "inline-block";
+    } else {
+      // Auth enabled but not logged in — show Login button, hide submit card
+      const loginBtn = document.getElementById("auth-login-btn");
+      if (loginBtn) loginBtn.style.display = "inline-block";
+
+      const submitCard = document.getElementById("review-submit-card");
+      const gateBanner = document.getElementById("auth-gate-banner");
+      if (submitCard) submitCard.style.display = "none";
+      if (gateBanner) gateBanner.style.display = "block";
+    }
+  } catch (_) { /* auth not configured */ }
+})();
+
+// ════════════════════════════════════════════════
+// Helpers
+// ════════════════════════════════════════════════
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function scoreClass(s) { return s >= 7 ? "green" : s >= 4 ? "yellow" : "red"; }
+
+function fmtDuration(ms) {
+  if (ms == null) return "—";
+  if (ms < 1000) return ms + "ms";
+  return (ms / 1000).toFixed(1) + "s";
+}
+
+function fmtTimestamp(iso) {
+  if (!iso) return "—";
+  try { return new Date(iso).toLocaleString(); } catch { return iso; }
+}
+
+function parseMarkdown(md) {
+  if (typeof marked === "undefined") return "<pre>" + escHtml(md) + "</pre>";
+  const html = marked.parse(md || "");
+  // Force all links to open in a new tab
+  return html.replace(/<a\s+href=/gi, '<a target="_blank" rel="noopener noreferrer" href=');
+}
+
+// ════════════════════════════════════════════════
+// Tabs
+// ════════════════════════════════════════════════
+
+const TAB_NAMES = ["review", "db", "lineage", "eval"];
+
+function switchTab(name) {
+  document.querySelectorAll(".tab-btn").forEach((b, i) => {
+    b.classList.toggle("active", TAB_NAMES[i] === name);
+  });
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+  document.getElementById("tab-" + name).classList.add("active");
+  if (name === "db")      loadRecords();
+  if (name === "lineage") loadLineageList();
+  if (name === "eval")    loadOnlineMetrics();
+}
+
+// ════════════════════════════════════════════════
+// REVIEW TAB
+// ════════════════════════════════════════════════
+
+const STAGES = [
+  "Fetching PR metadata…",
+  "Running code quality analysis…",
+  "Running security analysis…",
+  "Generating PR review…",
+  "Compiling summary report…",
+];
+let stageTimer = null;
+
+function cycleStages() {
+  let i = 0;
+  const el = document.getElementById("stage-msg");
+  el.textContent = STAGES[i];
+  stageTimer = setInterval(() => { i = (i + 1) % STAGES.length; el.textContent = STAGES[i]; }, 4000);
+}
+function stopStages() { if (stageTimer) { clearInterval(stageTimer); stageTimer = null; } }
+
+function showStatus(on) {
+  document.getElementById("status").style.display = on ? "block" : "none";
+  document.getElementById("review-btn").disabled = on;
+  document.getElementById("pr-url").disabled = on;
+  if (on) cycleStages(); else stopStages();
+}
+
+function showReviewError(msg) {
+  const el = document.getElementById("review-error");
+  el.textContent = msg; el.style.display = msg ? "block" : "none";
+}
+
+const SEV_EMOJI = { CRITICAL: "🔴", HIGH: "🟠", MEDIUM: "🟡", LOW: "🔵" };
+const SEV_DEFAULTS = { CRITICAL: 3.0, HIGH: 1.5, MEDIUM: 0.5, LOW: 0.1 };
+
+function renderScoreBreakdown(bd) {
+  const el = document.getElementById("score-breakdown");
+  if (!bd || !bd.severity_counts) { el.style.display = "none"; return; }
+  const weights = bd.severity_weights || SEV_DEFAULTS;
+  const counts  = bd.severity_counts || {};
+  const deds    = bd.severity_deductions || {};
+  const rows = [`<tr>
+    <td>Base score</td><td></td><td></td>
+    <td>10.0</td>
+  </tr>`];
+  for (const sev of ["CRITICAL", "HIGH", "MEDIUM", "LOW"]) {
+    const n = counts[sev] || 0;
+    const w = weights[sev] || SEV_DEFAULTS[sev];
+    const d = deds[sev] || 0;
+    const hasCls = n > 0 ? " has-findings" : "";
+    rows.push(`<tr class="${hasCls}">
+      <td>${SEV_EMOJI[sev]} ${sev}</td>
+      <td>×${n}</td>
+      <td>−${w.toFixed(1)} ea</td>
+      <td>${n > 0 ? "−" + d.toFixed(1) : "0.0"}</td>
+    </tr>`);
+  }
+  if ((bd.positive_count || 0) > 0) {
+    rows.push(`<tr class="breakdown-positive">
+      <td>✨ Positive</td>
+      <td>×${bd.positive_count}</td>
+      <td>+0.1 ea</td>
+      <td>+${(bd.positive_boost || 0).toFixed(1)}</td>
+    </tr>`);
+  }
+  document.getElementById("breakdown-rows").innerHTML = rows.join("");
+  document.getElementById("breakdown-final").textContent =
+    bd.final_score != null ? bd.final_score.toFixed(1) + " / 10" : "—";
+  el.style.display = "block";
+}
+
+function renderBreakdownChips(bd) {
+  if (!bd || !bd.severity_counts) return "";
+  return ["CRITICAL","HIGH","MEDIUM","LOW"]
+    .filter(s => (bd.severity_counts[s] || 0) > 0)
+    .map(s => `<span class="sev-chip ${s}" style="margin-left:4px">${SEV_EMOJI[s]}${bd.severity_counts[s]}</span>`)
+    .join("");
+}
+
+function renderResults(data, prUrl) {
+  const score = data.score ?? 0;
+  const circle = document.getElementById("score-circle");
+  circle.textContent = score;
+  circle.className = "score-circle " + scoreClass(score);
+
+  document.getElementById("badges").innerHTML = data.should_block
+    ? '<span class="badge blocked">🚫 Changes requested</span>'
+    : score >= 7
+    ? '<span class="badge good">✅ Good to merge</span>'
+    : '<span class="badge needs-work">⚠️ Needs work</span>';
+
+  if (prUrl)
+    document.getElementById("pr-link").innerHTML =
+      '<a href="' + prUrl + '" target="_blank" rel="noopener">' + escHtml(prUrl) + '</a>';
+
+  const tid = data.thread_id || "";
+  const tidEl = document.getElementById("run-thread-id");
+  if (tid) {
+    tidEl.innerHTML = 'Run ID: <span style="color:var(--accent)">' + escHtml(tid) + '</span>' +
+      ' &nbsp;<a href="#" style="color:var(--muted);font-size:11px" onclick="jumpToLineage(' + escHtml(JSON.stringify(tid)) + ');return false">View lineage →</a>';
+  } else {
+    tidEl.textContent = "";
+  }
+
+  renderScoreBreakdown(data.score_breakdown);
+
+  document.getElementById("review-body").innerHTML = parseMarkdown(data.summary_report || "");
+
+  document.getElementById("results").style.display = "block";
+  document.getElementById("results").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function startReview() {
+  const prUrl = document.getElementById("pr-url").value.trim();
+  if (!prUrl) { showReviewError("Please enter a GitHub PR URL."); return; }
+  showReviewError("");
+  document.getElementById("results").style.display = "none";
+  showStatus(true);
+  try {
+    const resp = await fetch("/review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pr_url: prUrl, post_comment: document.getElementById("post-comment").checked }),
+    });
+    if (resp.status === 401) {
+      showReviewError("Login required to submit a review. Click Login in the top-right corner.");
+      return;
+    }
+    if (!resp.ok) {
+      let detail = "Server error " + resp.status;
+      try { const j = await resp.json(); detail = j.detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    renderResults(await resp.json(), prUrl);
+    loadPastReviews();
+  } catch (err) {
+    showReviewError("Review failed: " + err.message);
+  } finally {
+    showStatus(false);
+  }
+}
+
+document.getElementById("pr-url").addEventListener("keydown", e => { if (e.key === "Enter") startReview(); });
+
+// Navigate to Lineage tab and select a specific run
+let pendingLineageSelect = null;
+
+function jumpToLineage(threadId) {
+  pendingLineageSelect = threadId || null;
+  switchTab("lineage");
+}
+
+// ── Past Reviews (main page history) ──
+
+async function loadPastReviews() {
+  const errEl = document.getElementById("past-reviews-error");
+  errEl.style.display = "none";
+  const tbody = document.getElementById("past-reviews-tbody");
+  tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state" style="padding:24px 0"><div class="big" style="font-size:28px">⏳</div>Loading…</div></td></tr>';
+  try {
+    const resp = await fetch("/lineage");
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    renderPastReviews(data.runs || []);
+  } catch (err) {
+    errEl.textContent = "Failed to load reviews: " + err.message;
+    errEl.style.display = "block";
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state" style="padding:24px 0"><div class="big" style="font-size:28px">📭</div>No data</div></td></tr>';
+  }
+}
+
+function renderPastReviews(runs) {
+  const tbody = document.getElementById("past-reviews-tbody");
+  if (!runs.length) {
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state" style="padding:36px 0"><div class="big" style="font-size:32px">📭</div>No reviews yet. Run a PR review above.</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = runs.map(r => {
+    const score = r.final_score != null ? r.final_score.toFixed(1) : "—";
+    const cls   = r.final_score != null ? scoreClass(r.final_score) : "";
+    const dur   = fmtDuration(r.total_duration_ms);
+    const date  = r.started_at ? new Date(r.started_at).toLocaleString() : "—";
+    const verdict = r.should_block
+      ? '<span class="badge blocked" style="font-size:11px;padding:2px 8px">🚫 Blocked</span>'
+      : r.final_score >= 7
+      ? '<span class="badge good" style="font-size:11px;padding:2px 8px">✅ Good</span>'
+      : '<span class="badge needs-work" style="font-size:11px;padding:2px 8px">⚠️ Needs work</span>';
+    const tid = r.thread_id || "";
+    const title = r.pr_title || tid;
+    const repo  = (r.pr_repo || "") + (r.pr_number ? " #" + r.pr_number : "");
+    return `<tr style="cursor:pointer" onclick="openReviewDetail(${escHtml(JSON.stringify(tid))})">
+      <td style="max-width:260px">
+        <a href="#" style="font-size:14px;font-weight:600;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;text-decoration:none"
+           title="${escHtml(title)}" onclick="event.stopPropagation();openReviewDetail(${escHtml(JSON.stringify(tid))});return false">${escHtml(title)}</a>
+        <div style="font-size:12px;color:var(--muted);font-family:monospace;margin-top:2px">${escHtml(repo)}</div>
+      </td>
+      <td><span class="score-pill ${cls}">${escHtml(score)}</span>${renderBreakdownChips(r.score_breakdown)}</td>
+      <td style="color:var(--muted);white-space:nowrap">${escHtml(dur)}</td>
+      <td style="font-size:13px;color:var(--muted);white-space:nowrap">${escHtml(date)}</td>
+      <td>${verdict}</td>
+      <td style="white-space:nowrap" onclick="event.stopPropagation()">
+        <button class="btn-ghost btn-sm" onclick="openReviewDetail(${escHtml(JSON.stringify(tid))})" title="View full review report">View</button>
+        <button class="btn-ghost btn-sm" style="margin-left:4px" onclick="jumpToDb(${escHtml(JSON.stringify(tid))})" title="Browse DB records for this review">DB</button>
+        <button class="btn-ghost btn-sm" style="margin-left:4px" onclick="jumpToLineage(${escHtml(JSON.stringify(tid))})" title="View data lineage for this review">Lineage</button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+// Navigate to DB tab, pre-filter by threadId
+let pendingDbFilter = null;
+
+function jumpToDb(threadId) {
+  pendingDbFilter = threadId;
+  switchTab("db");
+}
+
+// ════════════════════════════════════════════════
+// DB TAB
+// ════════════════════════════════════════════════
+
+let allRecords = [];
+
+function fmtTTL(expiresInS) {
+  if (!expiresInS) return { label: "expired", cls: "ttl-expire" };
+  const h = Math.floor(expiresInS / 3600), m = Math.floor((expiresInS % 3600) / 60);
+  return {
+    label: h > 0 ? h + "h " + m + "m" : m + "m",
+    cls: expiresInS > 3600 ? "ttl-ok" : expiresInS > 300 ? "ttl-warn" : "ttl-expire",
+  };
+}
+
+function fmtPreview(val) {
+  try {
+    const obj = JSON.parse(val);
+    if (obj.checkpoint !== undefined) {
+      const keys = Object.keys(obj.checkpoint || {});
+      return "checkpoint  {" + keys.slice(0, 4).join(", ") + (keys.length > 4 ? ", …" : "") + "}";
+    }
+    return JSON.stringify(obj, null, 0).slice(0, 120);
+  } catch { return String(val).slice(0, 120); }
+}
+
+function fmtFull(val) {
+  try { return JSON.stringify(JSON.parse(val), null, 2); } catch { return val; }
+}
+
+function renderTable(records) {
+  const tbody = document.getElementById("db-tbody");
+  if (!records.length) {
+    tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="big">📭</div>No records found</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = records.map((r, i) => {
+    const { label, cls } = fmtTTL(r.expires_in_s);
+    return `<tr>
+      <td style="max-width:180px" class="cell-mono" title="${escHtml(r.thread_id)}">${escHtml(r.thread_id.slice(0, 36))}</td>
+      <td class="cell-mono" style="white-space:nowrap">${escHtml(r.key)}</td>
+      <td style="max-width:320px">
+        <div class="value-preview cell-mono" onclick="openModal(${i})">${escHtml(fmtPreview(r.value))}${r.value.length > 120 ? " …" : ""}</div>
+      </td>
+      <td style="white-space:nowrap"><span class="${cls}">${label}</span></td>
+      <td style="white-space:nowrap">
+        <button class="btn-danger" onclick="deleteRecord(${escHtml(JSON.stringify(r.thread_id))}, ${escHtml(JSON.stringify(r.key))}, this)">Delete</button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+function applyFilter() {
+  const q = document.getElementById("db-search").value.toLowerCase();
+  renderTable(q ? allRecords.filter(r =>
+    r.thread_id.toLowerCase().includes(q) || r.key.toLowerCase().includes(q) || r.value.toLowerCase().includes(q)
+  ) : allRecords);
+}
+
+async function loadRecords() {
+  document.getElementById("db-tbody").innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="big">⏳</div>Loading…</div></td></tr>';
+  const errEl = document.getElementById("db-error"); errEl.style.display = "none";
+  try {
+    const resp = await fetch("/db/records");
+    if (resp.status === 401) {
+      // Not authenticated — show login gate, hide table
+      document.getElementById("db-content").style.display = "none";
+      document.getElementById("db-auth-gate").style.display = "block";
+      return;
+    }
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    allRecords = data.items || [];
+    document.getElementById("db-table-name").textContent = data.table || "Agent storage";
+    document.getElementById("db-meta").textContent = data.count + " record" + (data.count !== 1 ? "s" : "");
+    if (pendingDbFilter) {
+      document.getElementById("db-search").value = pendingDbFilter;
+      pendingDbFilter = null;
+    }
+    applyFilter();
+  } catch (err) {
+    errEl.textContent = "Failed to load records: " + err.message; errEl.style.display = "block";
+    document.getElementById("db-tbody").innerHTML = "";
+  }
+}
+
+async function deleteRecord(threadId, key, btn) {
+  if (!confirm("Delete record?\n\nThread: " + threadId + "\nKey: " + key)) return;
+  btn.disabled = true;
+  try {
+    const resp = await fetch("/db/records/" + encodeURIComponent(threadId) + "/" + encodeURIComponent(key), { method: "DELETE" });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    await loadRecords();
+  } catch (err) { alert("Delete failed: " + err.message); btn.disabled = false; }
+}
+
+// ════════════════════════════════════════════════
+// LINEAGE TAB
+// ════════════════════════════════════════════════
+
+const AGENT_LABELS = {
+  security:    { label: "Security",     icon: "🔒" },
+  code_quality:{ label: "Code Quality", icon: "📐" },
+  pr_reviewer: { label: "PR Review",    icon: "👀" },
+  summary:     { label: "Summary",      icon: "📋" },
+};
+
+const DATA_FLOWS = [
+  { key: "security_findings",     writer: "security",     readers: ["code_quality", "pr_reviewer", "summary"] },
+  { key: "code_quality_findings", writer: "code_quality", readers: ["pr_reviewer", "summary"] },
+  { key: "pr_review_findings",    writer: "pr_reviewer",  readers: ["summary"] },
+  { key: "summary_report",        writer: "summary",      readers: [] },
+];
+
+let allRuns = [];
+let selectedThreadId = null;
+let selectedAgent = null;
+let currentLineage = null;
+
+async function loadLineageList() {
+  document.getElementById("run-list").innerHTML = '<div class="empty-state"><div class="big">⏳</div>Loading…</div>';
+  const errEl = document.getElementById("lineage-error"); errEl.style.display = "none";
+  try {
+    const resp = await fetch("/lineage");
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    allRuns = data.runs || [];
+    renderRunList();
+    if (pendingLineageSelect !== null) {
+      const tid = pendingLineageSelect;
+      pendingLineageSelect = null;
+      if (tid) selectRun(tid);
+    } else if (allRuns.length && !selectedThreadId) {
+      selectRun(allRuns[0].thread_id);
+    }
+  } catch (err) {
+    errEl.textContent = "Failed to load lineage: " + err.message; errEl.style.display = "block";
+    document.getElementById("run-list").innerHTML = '<div class="empty-state">No data</div>';
+  }
+}
+
+function renderRunList() {
+  const el = document.getElementById("run-list");
+  if (!allRuns.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:24px 0"><div class="big" style="font-size:28px">📭</div>No runs yet.<br>Run a PR review first.</div>';
+    return;
+  }
+  el.innerHTML = allRuns.map(r => {
+    const sc  = (r.final_score || 0).toFixed(1);
+    const cls = scoreClass(r.final_score || 0);
+    const time = r.started_at ? new Date(r.started_at).toLocaleString() : "";
+    const active = r.thread_id === selectedThreadId ? " selected" : "";
+    return `<div class="run-card${active}" onclick="selectRun(${escHtml(JSON.stringify(r.thread_id))})">
+      <div class="run-card-title" title="${escHtml(r.pr_title || r.thread_id)}">${escHtml(r.pr_title || r.thread_id)}</div>
+      <div class="run-card-meta">
+        <span class="score-pill ${cls}">${sc}</span>
+        <span>${escHtml(fmtDuration(r.total_duration_ms))}</span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px">${escHtml(time)}</div>
+    </div>`;
+  }).join("");
+}
+
+async function selectRun(threadId) {
+  selectedThreadId = threadId;
+  selectedAgent = null;
+  renderRunList();
+
+  document.getElementById("lineage-empty").style.display = "none";
+  document.getElementById("lineage-detail").style.display = "block";
+  document.getElementById("agent-detail").classList.remove("visible");
+
+  try {
+    const resp = await fetch("/lineage/detail?thread_id=" + encodeURIComponent(threadId));
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    currentLineage = data.lineage || {};
+    renderLineageDetail(threadId, currentLineage);
+  } catch (err) {
+    document.getElementById("lineage-error").textContent = "Failed to load detail: " + err.message;
+    document.getElementById("lineage-error").style.display = "block";
+  }
+}
+
+function renderLineageDetail(threadId, lineage) {
+  const run = lineage.run || {};
+  const agentOrder = run.agent_order || Object.keys(AGENT_LABELS);
+
+  document.getElementById("ld-title").textContent = run.pr_title || threadId;
+  document.getElementById("ld-thread").textContent = threadId;
+  document.getElementById("ld-score").textContent = run.final_score != null ? run.final_score.toFixed(1) + " / 10" : "—";
+  document.getElementById("ld-duration").textContent = fmtDuration(run.total_duration_ms);
+  document.getElementById("ld-started").textContent = fmtTimestamp(run.started_at);
+  document.getElementById("ld-block-badge").style.display = run.should_block ? "inline" : "none";
+
+  const flowEl = document.getElementById("pipeline-flow");
+  flowEl.innerHTML = "";
+  agentOrder.forEach((agentKey, idx) => {
+    if (idx > 0) {
+      const arr = document.createElement("div");
+      arr.className = "pipeline-arrow"; arr.textContent = "→";
+      flowEl.appendChild(arr);
+    }
+    const agentData = lineage[agentKey] || {};
+    const meta = AGENT_LABELS[agentKey] || { label: agentKey, icon: "⚙️" };
+    const node = document.createElement("div");
+    node.className = "agent-node " + agentKey;
+    node.dataset.agent = agentKey;
+    node.onclick = () => selectAgent(agentKey);
+
+    const out = agentData.output_summary || {};
+    const chips = buildSevChips(agentKey, out);
+
+    node.innerHTML = `
+      <div class="node-header">
+        <div class="node-dot"></div>
+        <div class="node-name">${escHtml(meta.icon + " " + meta.label)}</div>
+      </div>
+      <div class="node-duration">${fmtDuration(agentData.duration_ms)}</div>
+      <div class="node-findings">${chips}</div>`;
+    flowEl.appendChild(node);
+  });
+
+  const flowRows = document.getElementById("flow-rows");
+  flowRows.innerHTML = DATA_FLOWS.map(f => {
+    const readerLabels = f.readers.map(r => (AGENT_LABELS[r] || { label: r }).label);
+    const writerLabel  = (AGENT_LABELS[f.writer] || { label: f.writer }).label;
+    const desc = readerLabels.length
+      ? writerLabel + " writes <span class='flow-arrow-txt'>→</span> read by " + readerLabels.join(", ")
+      : writerLabel + " writes (final output)";
+    return `<div class="flow-row"><span class="flow-key">${escHtml(f.key)}</span><span class="flow-desc">${desc}</span></div>`;
+  }).join("");
+}
+
+function buildSevChips(agentKey, out) {
+  if (agentKey === "summary") {
+    const s = out.score != null ? out.score.toFixed(1) : "—";
+    return `<span class="sev-chip ok">Score: ${escHtml(s)}</span>` +
+           `<span class="sev-chip">Finals: ${escHtml(String(out.final_findings ?? "—"))}</span>`;
+  }
+  const sevs = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+  return sevs.filter(s => out[s] > 0).map(s =>
+    `<span class="sev-chip ${escHtml(s)}">${escHtml(s[0])}:${escHtml(String(out[s]))}</span>`
+  ).join("") || (out.total_findings === 0 ? '<span class="sev-chip ok">✓ clean</span>' : "");
+}
+
+function selectAgent(agentKey) {
+  selectedAgent = agentKey;
+  document.querySelectorAll(".agent-node").forEach(n => n.classList.remove("active"));
+  const node = document.querySelector(".agent-node[data-agent='" + agentKey + "']");
+  if (node) node.classList.add("active");
+
+  const agentData = currentLineage ? (currentLineage[agentKey] || {}) : {};
+  const meta = AGENT_LABELS[agentKey] || { label: agentKey, icon: "⚙️" };
+
+  document.getElementById("ad-title").innerHTML =
+    `<span style="color:var(--node-color, var(--accent))">${escHtml(meta.icon)} ${escHtml(meta.label)}</span> agent`;
+  document.querySelector("#agent-detail").style.setProperty("--node-color",
+    getComputedStyle(document.documentElement).getPropertyValue("--c-" + agentKey.replace("_", "-")) || "var(--accent)");
+
+  const inp = agentData.input_summary  || {};
+  const out = agentData.output_summary || {};
+
+  document.getElementById("ad-grid").innerHTML = `
+    <div class="detail-block">
+      <h4>Timing</h4>
+      <div class="kv-row"><span class="k">Duration</span><span class="v">${fmtDuration(agentData.duration_ms)}</span></div>
+      <div class="kv-row"><span class="k">Started</span><span class="v">${fmtTimestamp(agentData.started_at)}</span></div>
+      <div class="kv-row"><span class="k">Completed</span><span class="v">${fmtTimestamp(agentData.completed_at)}</span></div>
+    </div>
+    <div class="detail-block">
+      <h4>Data dependencies</h4>
+      <div style="margin-bottom:8px">
+        <div class="kv-row" style="margin-bottom:4px"><span class="k">Reads from</span></div>
+        <div class="tag-list">${(agentData.reads_from || []).length
+          ? (agentData.reads_from || []).map(k => `<span class="tag">${escHtml(k)}</span>`).join("")
+          : '<span style="font-size:12px;color:var(--muted)">(none — first agent)</span>'}</div>
+      </div>
+      <div>
+        <div class="kv-row" style="margin-bottom:4px"><span class="k">Writes to</span></div>
+        <div class="tag-list">${(agentData.writes_to || []).map(k => `<span class="tag">${escHtml(k)}</span>`).join("")}</div>
+      </div>
+    </div>
+    <div class="detail-block">
+      <h4>Input summary</h4>
+      ${Object.entries(inp).map(([k, v]) =>
+        `<div class="kv-row"><span class="k">${escHtml(k)}</span><span class="v">${escHtml(String(v))}</span></div>`
+      ).join("") || '<div style="font-size:12px;color:var(--muted)">—</div>'}
+    </div>
+    <div class="detail-block">
+      <h4>Output summary</h4>
+      ${Object.entries(out).map(([k, v]) =>
+        `<div class="kv-row"><span class="k">${escHtml(k)}</span><span class="v">${escHtml(String(v))}</span></div>`
+      ).join("") || '<div style="font-size:12px;color:var(--muted)">—</div>'}
+    </div>`;
+
+  document.getElementById("agent-detail").classList.add("visible");
+  document.getElementById("agent-detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+// ════════════════════════════════════════════════
+// Modal
+// ════════════════════════════════════════════════
+
+function openModal(idx) {
+  const q = document.getElementById("db-search").value.toLowerCase();
+  const visible = q ? allRecords.filter(r =>
+    [r.thread_id, r.key, r.value].join(" ").toLowerCase().includes(q)
+  ) : allRecords;
+  const r = visible[idx];
+  if (!r) return;
+  document.getElementById("modal-title").textContent = r.key + " · " + r.thread_id.slice(0, 8) + "…";
+  document.getElementById("modal-content").textContent = fmtFull(r.value);
+  document.getElementById("modal-overlay").classList.add("open");
+}
+
+function closeModal(e) {
+  if (!e || e.target === document.getElementById("modal-overlay") || e.currentTarget.classList.contains("modal-close"))
+    document.getElementById("modal-overlay").classList.remove("open");
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    closeModal({ target: document.getElementById("modal-overlay") });
+    closeReviewModal({ target: document.getElementById("review-detail-overlay") });
+  }
+});
+
+// ════════════════════════════════════════════════
+// REVIEW DETAIL MODAL
+// ════════════════════════════════════════════════
+
+function closeReviewModal(e) {
+  if (!e || e.target === document.getElementById("review-detail-overlay") || e.currentTarget.classList.contains("modal-close"))
+    document.getElementById("review-detail-overlay").classList.remove("open");
+}
+
+function buildScoreBreakdownHtml(bd) {
+  if (!bd || !bd.severity_counts) return "";
+  const weights = bd.severity_weights || SEV_DEFAULTS;
+  const counts  = bd.severity_counts || {};
+  const deds    = bd.severity_deductions || {};
+  let rows = `<tr><td>Base score</td><td></td><td></td><td>10.0</td></tr>`;
+  for (const sev of ["CRITICAL", "HIGH", "MEDIUM", "LOW"]) {
+    const n = counts[sev] || 0;
+    const w = weights[sev] || SEV_DEFAULTS[sev];
+    const d = deds[sev] || 0;
+    const cls = n > 0 ? " has-findings" : "";
+    rows += `<tr class="${cls}">
+      <td>${SEV_EMOJI[sev]} ${sev}</td>
+      <td>×${n}</td>
+      <td>−${w.toFixed(1)} ea</td>
+      <td>${n > 0 ? "−" + d.toFixed(1) : "0.0"}</td>
+    </tr>`;
+  }
+  if ((bd.positive_count || 0) > 0) {
+    rows += `<tr class="breakdown-positive">
+      <td>✨ Positive</td><td>×${bd.positive_count}</td>
+      <td>+0.1 ea</td><td>+${(bd.positive_boost || 0).toFixed(1)}</td>
+    </tr>`;
+  }
+  const final = bd.final_score != null ? bd.final_score.toFixed(1) + " / 10" : "—";
+  return `<div class="score-breakdown" style="margin-bottom:0">
+    <h4>📊 Score Calculation</h4>
+    <table class="breakdown-table">
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="3">Final score (clamped 0 – 10)</td><td>${escHtml(final)}</td></tr></tfoot>
+    </table>
+  </div>`;
+}
+
+async function openReviewDetail(tid) {
+  const overlay = document.getElementById("review-detail-overlay");
+  overlay.classList.add("open");
+
+  // reset state
+  document.getElementById("rd-loading").style.display = "block";
+  document.getElementById("rd-content").style.display = "none";
+  document.getElementById("rd-error").style.display   = "none";
+  document.getElementById("rd-title").textContent = "PR Review";
+  document.getElementById("rd-meta").textContent  = "";
+
+  try {
+    const resp = await fetch("/review/detail?thread_id=" + encodeURIComponent(tid));
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const d = await resp.json();
+
+    // header
+    document.getElementById("rd-title").textContent =
+      d.pr_title || tid;
+    const repo = (d.pr_repo || "") + (d.pr_number ? " #" + d.pr_number : "");
+    const date = d.started_at ? new Date(d.started_at).toLocaleString() : "";
+    const dur  = fmtDuration(d.total_duration_ms);
+    const meta = [repo, date, dur, d.files_count != null ? d.files_count + " files" : ""]
+      .filter(Boolean).join(" · ");
+    document.getElementById("rd-meta").textContent = meta;
+
+    // score circle
+    const score = d.final_score != null ? d.final_score : null;
+    const circle = document.getElementById("rd-score-circle");
+    circle.textContent = score != null ? score.toFixed(1) : "—";
+    circle.className   = "score-circle " + (score != null ? scoreClass(score) : "");
+
+    // badge
+    document.getElementById("rd-badges").innerHTML = d.should_block
+      ? '<span class="badge blocked">🚫 Changes requested</span>'
+      : score != null && score >= 7
+      ? '<span class="badge good">✅ Good to merge</span>'
+      : '<span class="badge needs-work">⚠️ Needs work</span>';
+
+    // thread id + lineage link
+    document.getElementById("rd-thread-id").innerHTML =
+      'Run ID: <span style="color:var(--accent)">' + escHtml(tid) + '</span>' +
+      ' &nbsp;<a href="#" style="color:var(--muted);font-size:12px" onclick="closeReviewModal();jumpToLineage(' + escHtml(JSON.stringify(tid)) + ');return false">View lineage →</a>';
+
+    // score breakdown
+    document.getElementById("rd-breakdown").innerHTML = buildScoreBreakdownHtml(d.score_breakdown);
+
+    // report body
+    document.getElementById("rd-report").innerHTML =
+      d.summary_report
+        ? parseMarkdown(d.summary_report)
+        : '<p style="color:var(--muted);font-style:italic">No report stored for this review.</p>';
+
+    document.getElementById("rd-loading").style.display = "none";
+    document.getElementById("rd-content").style.display = "block";
+  } catch (err) {
+    document.getElementById("rd-loading").style.display = "none";
+    const errEl = document.getElementById("rd-error");
+    errEl.textContent = "Failed to load review: " + err.message;
+    errEl.style.display = "block";
+  }
+}
+
+// ════════════════════════════════════════════════
+// METRICS TAB
+// ════════════════════════════════════════════════
+
+let onlineRuns = [];
+
+async function loadOnlineMetrics() {
+  const errEl = document.getElementById("online-error");
+  errEl.style.display = "none";
+  document.getElementById("online-tbody").innerHTML =
+    '<tr><td colspan="6"><div class="empty-state"><div class="big">⏳</div>Loading…</div></td></tr>';
+
+  try {
+    const resp = await fetch("/eval/metrics");
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    onlineRuns = data.runs || [];
+    renderOnlineMetrics(data.metrics || {}, data.runs || []);
+  } catch (err) {
+    errEl.textContent = "Failed to load metrics: " + err.message;
+    errEl.style.display = "block";
+  }
+}
+
+function renderOnlineMetrics(m, runs) {
+  const cards = document.querySelectorAll("#online-stats .stat-card");
+  const vals = [
+    m.total_runs      != null ? m.total_runs                               : "—",
+    m.avg_score       != null ? m.avg_score.toFixed(1)                    : "—",
+    m.block_rate_pct  != null ? m.block_rate_pct + "%"                    : "—",
+    m.avg_duration_ms != null ? Math.round(m.avg_duration_ms / 1000) + "s": "—",
+  ];
+  cards.forEach((c, i) => { c.querySelector(".stat-val").textContent = vals[i]; });
+
+  const buckets = m.score_buckets || { "9-10": 0, "7-8": 0, "5-6": 0, "0-4": 0 };
+  const total   = Object.values(buckets).reduce((a, b) => a + b, 0) || 1;
+  const rows    = document.getElementById("online-dist").querySelectorAll(".dist-row");
+  ["9-10", "7-8", "5-6", "0-4"].forEach((key, i) => {
+    const cnt = buckets[key] || 0;
+    rows[i].querySelector(".dist-fill").style.width = Math.round(cnt / total * 100) + "%";
+    rows[i].querySelector(".dist-cnt").textContent = cnt;
+  });
+
+  const tbody = document.getElementById("online-tbody");
+  if (!runs.length) {
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="big">📭</div>No reviews yet. Run a PR review to see metrics.</div></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = runs.map(r => {
+    const score    = r.final_score != null ? r.final_score.toFixed(1) : "—";
+    const scoreCls = r.final_score != null ? scoreClass(r.final_score) : "";
+    const dur      = r.total_duration_ms ? Math.round(r.total_duration_ms / 1000) + "s" : "—";
+    const date     = r.started_at ? new Date(r.started_at).toLocaleString() : "—";
+    const verdict  = r.should_block
+      ? '<span class="badge blocked" style="font-size:11px;padding:2px 8px">🚫 Blocked</span>'
+      : r.final_score >= 7
+      ? '<span class="badge good" style="font-size:11px;padding:2px 8px">✅ Good</span>'
+      : '<span class="badge needs-work" style="font-size:11px;padding:2px 8px">⚠️ Needs work</span>';
+    const fb = r.feedback || {};
+    const upActive   = fb.thumbs === "up"   ? " active" : "";
+    const downActive = fb.thumbs === "down" ? " active" : "";
+    const tid   = r.thread_id || "";
+    const title = r.pr_title || tid || "—";
+    const repo  = (r.pr_repo || "") + (r.pr_number ? " #" + r.pr_number : "");
+    return `<tr style="cursor:pointer" onclick="openReviewDetail(${escHtml(JSON.stringify(tid))})">
+      <td style="max-width:220px" onclick="event.stopPropagation()">
+        <div style="font-size:13px;font-weight:500;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer"
+             title="${escHtml(title)}" onclick="openReviewDetail(${escHtml(JSON.stringify(tid))})">${escHtml(title)}</div>
+        <div style="font-size:11px;color:var(--muted);font-family:monospace">${escHtml(repo)}</div>
+      </td>
+      <td><span class="score-pill ${scoreCls}">${escHtml(score)}</span></td>
+      <td style="font-size:13px;color:var(--muted);white-space:nowrap">${escHtml(dur)}</td>
+      <td style="font-size:12px;color:var(--muted);white-space:nowrap">${escHtml(date)}</td>
+      <td>${verdict}</td>
+      <td style="white-space:nowrap" onclick="event.stopPropagation()">
+        <button class="thumb-btn up${upActive}"   onclick="submitFeedback(${escHtml(JSON.stringify(tid))}, 'up')"   title="Helpful review">👍</button>
+        <button class="thumb-btn down${downActive}" onclick="submitFeedback(${escHtml(JSON.stringify(tid))}, 'down')" title="Unhelpful review">👎</button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+async function submitFeedback(threadId, thumbs) {
+  try {
+    const resp = await fetch("/eval/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ thread_id: threadId, thumbs, rating: 0, notes: "" }),
+    });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    await loadOnlineMetrics();
+  } catch (err) {
+    alert("Feedback failed: " + err.message);
+  }
+}
+
+// ── Init ──
+loadPastReviews();
+</script>
+
+</body>
+</html>

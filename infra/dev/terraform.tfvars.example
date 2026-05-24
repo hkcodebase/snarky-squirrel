@@ -1,0 +1,43 @@
+# Copy to terraform.tfvars and edit before running terraform apply.
+# terraform.tfvars is gitignored — never commit real credentials.
+
+aws_region        = "us-east-1"
+environment       = "dev"
+dynamo_table_name = "pr-review-memory"
+
+# Model must be enabled in Bedrock console → Model access before use.
+# Options:
+#   us.anthropic.claude-haiku-4-5-20251001-v1:0        (default — Claude Haiku 4.5 cross-region)
+#   anthropic.claude-sonnet-4-5-20250514-v1:0          (Claude Sonnet 4.5 — higher quality)
+#   us.anthropic.claude-haiku-4-5-20251001-v1:0        (cross-region inference profile)
+bedrock_model_id = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+# Your AWS SSO profile name (output into the env_block for copy-paste convenience).
+aws_profile = "default"
+
+# false = SSO / existing role (default). true = create a dedicated IAM user + access key.
+create_iam_user = false
+
+# ── EC2 (optional) ────────────────────────────────────────────────────────────
+# Set create_ec2 = true to provision an EC2 instance running the API server.
+# The instance uses the IAM role (DynamoDB + Bedrock) and SSM Session Manager.
+
+create_ec2         = false
+ec2_instance_type  = "t3.micro"   # t3.small if you need more memory
+ec2_key_name       = ""           # leave empty to use SSM only (recommended)
+github_token       = ""           # ghp_... required for live PR reviews
+
+# ── Route53 (optional) ────────────────────────────────────────────────────────
+# Creates an A record: <subdomain_name>.<route53_zone_name> → EC2 public IP
+# Requires create_ec2 = true and an existing public hosted zone in Route53.
+
+route53_zone_name  = "example.com"              # apex domain of your hosted zone
+subdomain_name     = "pr-review"                       # → https://pr-review.example.com
+certbot_email      = "admin@example.com"             # your email for Let's Encrypt notifications
+
+# ── Cognito authentication (optional) ─────────────────────────────────────────
+# Set enable_cognito = true to protect the app with AWS Cognito login.
+# After apply, create your first user with the cognito_create_user_cmd output.
+
+enable_cognito     = true
+app_url            = "https://pr-review.example.com"  # must match your domain

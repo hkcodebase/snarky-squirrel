@@ -1,0 +1,15 @@
+/do-not-commit*
+/.env
+/.env.aws
+/.coverage
+.idea/*
+.venv/*
+*.log
+
+# Terraform
+/infra/dev/.terraform/
+/infra/dev/.terraform.lock.hcl
+/infra/dev/terraform.tfvars
+/infra/dev/terraform.tfstate
+/infra/dev/terraform.tfstate.backup
+/infra/dev/*.tfstate*

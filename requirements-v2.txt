@@ -1,0 +1,46 @@
+# ──────────────────────────────────────────────────────────
+# PR Review System v2 — Local Development
+# LLM backend: Ollama (Gemma) or Docker Model Runner
+# DB backend:  DynamoDB Local (docker-compose)
+#
+# REQUIRES Python 3.12.x — LangChain uses Pydantic V1 internals
+# that are incompatible with Python 3.13+.
+# Install 3.12: pyenv install 3.12.10 && pyenv local 3.12.10
+#
+# Install:  pip install -r requirements-v2.txt
+# ──────────────────────────────────────────────────────────
+
+# ── LangGraph / LangChain core ────────────────────────────
+langgraph>=0.2.28,<0.3.0
+langchain>=0.3.7,<0.4.0
+langchain-core>=0.3.15,<0.4.0
+
+# ── Local LLM via Ollama ──────────────────────────────────
+langchain-ollama>=0.2.0,<0.3.0
+
+# ── OpenAI-compatible API (Docker Model Runner / Ollama /v1) ─
+langchain-openai>=0.2.0,<0.3.0
+openai>=1.54.0,<2.0.0
+
+# ── AWS SDK ──────────────────────────────────────────────
+boto3>=1.35.0,<2.0.0
+botocore[crt]>=1.35.0,<2.0.0   # [crt] required for SSO credential provider
+
+# ── AWS Bedrock via LangChain (optional — needed when LLM_PROVIDER=bedrock) ─
+langchain-aws>=0.2.0,<0.3.0
+
+# ── HTTP ──────────────────────────────────────────────────
+requests>=2.32.0,<3.0.0
+urllib3>=2.2.0,<3.0.0
+
+# ── Local API server ──────────────────────────────────────
+fastapi>=0.115.0,<0.116.0
+uvicorn[standard]>=0.32.0,<0.33.0
+
+# ── Utilities ─────────────────────────────────────────────
+pydantic>=2.9.0,<3.0.0
+python-dotenv>=1.0.1,<2.0.0
+tenacity>=9.0.0,<10.0.0
+
+# ── Auth — Cognito JWT validation ─────────────────────────────────────────────
+python-jose[cryptography]>=3.3.0,<4.0.0

@@ -1,0 +1,129 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "snarky-squirrel"
+version = "0.1.0"
+description = "Agentic AI code review system using LangGraph — local dev with Ollama/Gemma and DynamoDB Local"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+  { name = "Your Organization" },
+]
+keywords = [
+  "code-review",
+  "langgraph",
+  "ollama",
+  "gemma",
+  "multi-agent",
+  "ai",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.12,<3.13"
+
+dependencies = [
+  "langgraph>=0.2.28,<0.3.0",
+  "langchain>=0.3.7,<0.4.0",
+  "langchain-core>=0.3.15,<0.4.0",
+  "langchain-ollama>=0.2.0,<0.3.0",
+  "langchain-openai>=0.2.0,<0.3.0",
+  "openai>=1.54.0,<2.0.0",
+  "boto3>=1.35.0,<2.0.0",
+  "botocore[crt]>=1.35.0,<2.0.0",
+  "langchain-aws>=0.2.0,<0.3.0",
+  "requests>=2.32.0,<3.0.0",
+  "urllib3>=2.2.0,<3.0.0",
+  "fastapi>=0.115.0,<0.116.0",
+  "uvicorn[standard]>=0.32.0,<0.33.0",
+  "pydantic>=2.9.0,<3.0.0",
+  "python-dotenv>=1.0.1,<2.0.0",
+  "tenacity>=9.0.0,<10.0.0",
+  "python-jose[cryptography]>=3.3.0,<4.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "pytest-cov>=6.0.0",
+  "moto[dynamodb,secretsmanager]>=5.0.0,<6.0.0",
+  "ruff>=0.9.0",
+  "mypy>=1.14.0",
+  "black>=25.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/hkcodebase/snarky-squirrel"
+Repository = "https://github.com/hkcodebase/snarky-squirrel"
+Issues = "https://github.com/hkcodebase/snarky-squirrel/issues"
+Documentation = "https://github.com/hkcodebase/snarky-squirrel#readme"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+minversion = "8.0"
+addopts = [
+  "--strict-markers",
+  "-ra",
+  "--strict-config",
+]
+markers = [
+  "e2e: end-to-end tests requiring real AWS credentials",
+  "slow: slow tests",
+]
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["src/"]
+branch = true
+omit = [
+  "*/site-packages/*",
+  "*/distutils/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "def __repr__",
+  "raise AssertionError",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+  "class .*\\bProtocol\\):",
+  "@(abc\\.)?abstractmethod",
+]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["hkcodebase/snarky-squirrel"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
