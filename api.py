@@ -207,6 +207,25 @@ def _current_user_id(request: Request) -> str:
     return f"user:{claims.get('email') or claims.get('sub', 'unknown')}"
 
 
+def _current_email(request: Request) -> str | None:
+    """Return the authenticated user's email, or None."""
+    if not _cognito.ENABLED:
+        return None
+    token = request.cookies.get(_cognito.COOKIE_NAME)
+    claims = _cognito.validate_token(token) if token else None
+    return claims.get("email") if claims else None
+
+
+def _is_admin(request: Request) -> bool:
+    """Return True if the current user's email is in ADMIN_EMAILS."""
+    email = _current_email(request)
+    if not email:
+        return False
+    raw = os.environ.get("ADMIN_EMAILS", "")
+    admins = {e.strip().lower() for e in raw.split(",") if e.strip()}
+    return email.lower() in admins
+
+
 @app.middleware("http")
 async def cognito_auth_middleware(request: Request, call_next):
     """
@@ -267,13 +286,14 @@ def auth_logout():
 def auth_me(request: Request):
     """Return current user info from session cookie (used by UI)."""
     if not _cognito.ENABLED:
-        return {"enabled": False, "user": None}
+        return {"enabled": False, "user": None, "is_admin": False}
     token = request.cookies.get(_cognito.COOKIE_NAME)
     claims = _cognito.validate_token(token) if token else None
     if not claims:
-        return {"enabled": True, "user": None}
+        return {"enabled": True, "user": None, "is_admin": False}
     return {
         "enabled": True,
+        "is_admin": _is_admin(request),
         "user": {
             "email": claims.get("email", ""),
             "name": claims.get("name", claims.get("email", "")),
@@ -296,6 +316,110 @@ def user_settings(request: Request):
         return json.loads(raw)
     except Exception:
         return {"last_pr_url": None}
+
+
+# ─────────────────────────── admin endpoints ─────────────────────────────────
+
+
+@app.delete("/review/{thread_id}")
+def delete_review(thread_id: str, request: Request):
+    """Delete all DynamoDB records for a review thread (admin only)."""
+    if not _is_admin(request):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    store = DynamoMemoryStore()
+    try:
+        resp = store.client.query(
+            TableName=store.table_name,
+            KeyConditionExpression="PK = :tid",
+            ExpressionAttributeValues={":tid": {"S": thread_id}},
+            ProjectionExpression="SK",
+        )
+        keys = [item["SK"]["S"] for item in resp.get("Items", [])]
+        for sk in keys:
+            store.delete(thread_id, sk)
+        return {"deleted": True, "records_removed": len(keys)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class InviteUserRequest(BaseModel):
+    email: str
+
+
+@app.get("/admin/users")
+def admin_list_users(request: Request):
+    """List Cognito user pool users (admin only)."""
+    if not _is_admin(request):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if not _cognito.ENABLED:
+        raise HTTPException(status_code=503, detail="Cognito not configured")
+    import boto3
+    client = boto3.client("cognito-idp", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+    user_pool_id = os.environ.get("COGNITO_USER_POOL_ID", "")
+    try:
+        users = []
+        kwargs: dict = {"UserPoolId": user_pool_id, "Limit": 60}
+        while True:
+            resp = client.list_users(**kwargs)
+            for u in resp.get("Users", []):
+                attrs = {a["Name"]: a["Value"] for a in u.get("Attributes", [])}
+                users.append({
+                    "username": u["Username"],
+                    "email": attrs.get("email", ""),
+                    "status": u.get("UserStatus", ""),
+                    "enabled": u.get("Enabled", True),
+                    "created": u.get("UserCreateDate", "").isoformat() if hasattr(u.get("UserCreateDate", ""), "isoformat") else str(u.get("UserCreateDate", "")),
+                })
+            token = resp.get("PaginationToken")
+            if not token:
+                break
+            kwargs["PaginationToken"] = token
+        return {"users": users}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/users")
+def admin_invite_user(req: InviteUserRequest, request: Request):
+    """Create a Cognito user and send a temporary password email (admin only)."""
+    if not _is_admin(request):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if not _cognito.ENABLED:
+        raise HTTPException(status_code=503, detail="Cognito not configured")
+    import boto3
+    from botocore.exceptions import ClientError as BotoClientError
+    client = boto3.client("cognito-idp", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+    user_pool_id = os.environ.get("COGNITO_USER_POOL_ID", "")
+    try:
+        client.admin_create_user(
+            UserPoolId=user_pool_id,
+            Username=req.email,
+            UserAttributes=[{"Name": "email", "Value": req.email}, {"Name": "email_verified", "Value": "true"}],
+            DesiredDeliveryMediums=["EMAIL"],
+        )
+        return {"invited": True, "email": req.email}
+    except BotoClientError as e:
+        code = e.response["Error"]["Code"]
+        if code == "UsernameExistsException":
+            raise HTTPException(status_code=409, detail="User already exists")
+        raise HTTPException(status_code=500, detail=e.response["Error"]["Message"])
+
+
+@app.delete("/admin/users/{email:path}")
+def admin_delete_user(email: str, request: Request):
+    """Delete a Cognito user (admin only)."""
+    if not _is_admin(request):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if not _cognito.ENABLED:
+        raise HTTPException(status_code=503, detail="Cognito not configured")
+    import boto3
+    client = boto3.client("cognito-idp", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+    user_pool_id = os.environ.get("COGNITO_USER_POOL_ID", "")
+    try:
+        client.admin_delete_user(UserPoolId=user_pool_id, Username=email)
+        return {"deleted": True, "email": email}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ─────────────────────────── models ──────────────────────────────────────────

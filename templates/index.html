@@ -32,6 +32,7 @@
   <button class="tab-btn" onclick="switchTab('db')">Storage</button>
   <button class="tab-btn" onclick="switchTab('lineage')">Data Lineage</button>
   <button class="tab-btn" onclick="switchTab('eval')">Metrics</button>
+  <button class="tab-btn" id="admin-tab-btn" style="display:none" onclick="switchTab('admin')">Admin</button>
 </div>
 
 <!-- ════════════════════════════════════════
@@ -306,6 +307,42 @@
 </div><!-- /tab-eval -->
 
 <!-- ════════════════════════════════════════
+     ADMIN TAB
+═══════════════════════════════════════════ -->
+<div id="tab-admin" class="tab-panel">
+  <div class="card" style="margin-bottom:16px">
+    <h2 style="font-size:16px;font-weight:700;margin-bottom:18px">Invite User</h2>
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      <input id="admin-invite-email" type="email" placeholder="user@example.com"
+             style="flex:1;max-width:340px" />
+      <button class="btn-primary" onclick="adminInviteUser()">Send invite</button>
+    </div>
+    <div id="admin-invite-msg" style="margin-top:10px;font-size:13px"></div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px">
+      <h2 style="font-size:16px;font-weight:700;margin:0">Cognito Users</h2>
+      <button class="btn-ghost" onclick="loadAdminUsers()">↻ Refresh</button>
+    </div>
+    <div id="admin-users-error" class="error-box" style="margin:0 20px 12px"></div>
+    <table class="db-table" style="font-size:13px">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="admin-users-tbody">
+        <tr><td colspan="4"><div class="empty-state" style="padding:24px 0">Switch to Admin tab to load users.</div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
      VALUE MODAL
 ═══════════════════════════════════════════ -->
 <div id="modal-overlay" class="modal-overlay" onclick="closeModal(event)">
@@ -416,6 +453,7 @@ function toggleTheme() {
 
 // ── Auth state (global) ───────────────────────────────────────────────────────
 let isAuthenticated = false;  // true once /auth/me confirms a valid session
+let isAdmin = false;
 
 (async function loadAuthUser() {
   try {
@@ -427,10 +465,15 @@ let isAuthenticated = false;  // true once /auth/me confirms a valid session
     if (data.user) {
       // Logged in
       isAuthenticated = true;
+      isAdmin = !!data.is_admin;
       const userEl = document.getElementById("auth-user");
       const btnEl  = document.getElementById("auth-btn");
       if (userEl) userEl.textContent = data.user.email || data.user.name;
       if (btnEl)  btnEl.style.display = "inline-block";
+      if (isAdmin) {
+        const adminTabBtn = document.getElementById("admin-tab-btn");
+        if (adminTabBtn) adminTabBtn.style.display = "";
+      }
     } else {
       // Auth enabled but not logged in — show Login button, hide submit card
       const loginBtn = document.getElementById("auth-login-btn");
@@ -477,14 +520,16 @@ function parseMarkdown(md) {
 // Tabs
 // ════════════════════════════════════════════════
 
-const TAB_NAMES = ["review", "db", "lineage", "eval"];
+const TAB_NAMES = ["review", "db", "lineage", "eval", "admin"];
 
 function switchTab(name) {
-  document.querySelectorAll(".tab-btn").forEach((b, i) => {
-    b.classList.toggle("active", TAB_NAMES[i] === name);
+  document.querySelectorAll(".tab-btn").forEach(b => {
+    const matches = b.getAttribute("onclick") === `switchTab('${name}')`;
+    b.classList.toggle("active", matches);
   });
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
   document.getElementById("tab-" + name).classList.add("active");
+  if (name === "admin") loadAdminUsers();
   if (name === "db")      loadRecords();
   if (name === "lineage") loadLineageList();
   if (name === "eval")    loadOnlineMetrics();
@@ -705,6 +750,7 @@ function renderPastReviews(runs) {
         <button class="btn-ghost btn-sm" onclick="openReviewDetail(${escHtml(JSON.stringify(tid))})" title="View full review report">View</button>
         <button class="btn-ghost btn-sm" style="margin-left:4px" onclick="jumpToDb(${escHtml(JSON.stringify(tid))})" title="Browse DB records for this review">DB</button>
         <button class="btn-ghost btn-sm" style="margin-left:4px" onclick="jumpToLineage(${escHtml(JSON.stringify(tid))})" title="View data lineage for this review">Lineage</button>
+        ${isAdmin ? `<button class="btn-danger btn-sm" style="margin-left:4px" onclick="deleteReview(${escHtml(JSON.stringify(tid))},this)" title="Delete all records for this review">Delete</button>` : ""}
       </td>
     </tr>`;
   }).join("");
@@ -1246,6 +1292,99 @@ async function submitFeedback(threadId, thumbs) {
     await loadOnlineMetrics();
   } catch (err) {
     alert("Feedback failed: " + err.message);
+  }
+}
+
+// ── Admin: delete review ──────────────────────────────────────────────────────
+
+async function deleteReview(threadId, btn) {
+  if (!confirm("Permanently delete all records for this review?\n\n" + threadId)) return;
+  btn.disabled = true;
+  try {
+    const resp = await fetch("/review/" + encodeURIComponent(threadId), { method: "DELETE" });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || "HTTP " + resp.status);
+    }
+    await loadPastReviews();
+  } catch (err) {
+    alert("Delete failed: " + err.message);
+    btn.disabled = false;
+  }
+}
+
+// ── Admin: user management ────────────────────────────────────────────────────
+
+async function loadAdminUsers() {
+  const errEl  = document.getElementById("admin-users-error");
+  const tbody  = document.getElementById("admin-users-tbody");
+  errEl.style.display = "none";
+  tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state" style="padding:24px 0"><div style="font-size:24px">⏳</div>Loading…</div></td></tr>';
+  try {
+    const resp = await fetch("/admin/users");
+    if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).detail || "HTTP " + resp.status);
+    const { users } = await resp.json();
+    renderAdminUsers(users);
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = "block";
+    tbody.innerHTML = "";
+  }
+}
+
+function renderAdminUsers(users) {
+  const tbody = document.getElementById("admin-users-tbody");
+  if (!users.length) {
+    tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state" style="padding:24px 0">No users found.</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = users.map(u => {
+    const statusCls = u.status === "CONFIRMED" ? "good" : u.status === "FORCE_CHANGE_PASSWORD" ? "needs-work" : "";
+    return `<tr>
+      <td style="font-weight:500">${escHtml(u.email || u.username)}</td>
+      <td><span class="badge ${statusCls}" style="font-size:11px;padding:2px 8px">${escHtml(u.status)}</span></td>
+      <td style="color:var(--muted);font-size:12px">${u.created ? new Date(u.created).toLocaleDateString() : "—"}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-danger btn-sm" onclick="adminDeleteUser(${escHtml(JSON.stringify(u.email || u.username))},this)">Remove</button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+async function adminInviteUser() {
+  const emailInput = document.getElementById("admin-invite-email");
+  const msgEl      = document.getElementById("admin-invite-msg");
+  const email      = emailInput.value.trim();
+  if (!email) { msgEl.textContent = "Enter an email address."; msgEl.style.color = "var(--red)"; return; }
+  msgEl.textContent = "Sending…"; msgEl.style.color = "var(--muted)";
+  try {
+    const resp = await fetch("/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.detail || "HTTP " + resp.status);
+    msgEl.textContent = "Invite sent to " + email;
+    msgEl.style.color = "var(--green)";
+    emailInput.value = "";
+    await loadAdminUsers();
+  } catch (err) {
+    msgEl.textContent = err.message;
+    msgEl.style.color = "var(--red)";
+  }
+}
+
+async function adminDeleteUser(email, btn) {
+  if (!confirm("Remove user " + email + " from Cognito?\nThis cannot be undone.")) return;
+  btn.disabled = true;
+  try {
+    const resp = await fetch("/admin/users/" + encodeURIComponent(email), { method: "DELETE" });
+    if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).detail || "HTTP " + resp.status);
+    await loadAdminUsers();
+  } catch (err) {
+    alert("Failed: " + err.message);
+    btn.disabled = false;
   }
 }
 
