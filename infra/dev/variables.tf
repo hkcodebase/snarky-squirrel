@@ -102,6 +102,14 @@ variable "certbot_email" {
   default     = ""
 }
 
+# ── Admin variables ───────────────────────────────────────────────────────────
+
+variable "admin_emails" {
+  description = "Comma-separated list of email addresses with admin access to the UI (delete reviews, manage Cognito users)."
+  type        = string
+  default     = ""
+}
+
 # ── Cognito variables ──────────────────────────────────────────────────────────
 
 variable "enable_cognito" {

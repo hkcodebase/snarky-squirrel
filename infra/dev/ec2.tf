@@ -170,6 +170,7 @@ resource "aws_instance" "pr_reviewer" {
     app_url       = var.app_url
     fqdn          = var.route53_zone_name != "" ? "${var.subdomain_name}.${var.route53_zone_name}" : ""
     certbot_email = var.certbot_email
+    admin_emails  = var.admin_emails
   })
 
   tags = {

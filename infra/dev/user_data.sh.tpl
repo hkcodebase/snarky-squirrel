@@ -14,6 +14,7 @@
 #   app_url                  : Public base URL of the app (e.g. https://snarky.hemantkumar.dev)
 #   fqdn                     : Fully qualified domain name for nginx + Let's Encrypt
 #   certbot_email            : Email address for Let's Encrypt certificate notifications
+#   admin_emails             : Comma-separated admin email addresses for the admin UI
 # =============================================================================
 set -euo pipefail
 exec > >(tee /var/log/pr-reviewer-init.log | logger -t pr-reviewer-init) 2>&1
@@ -84,6 +85,7 @@ COGNITO_USER_POOL_ID=${cognito_user_pool_id}
 COGNITO_CLIENT_ID=${cognito_client_id}
 COGNITO_DOMAIN=${cognito_domain}
 APP_URL=${app_url}
+ADMIN_EMAILS=${admin_emails}
 DOTENV
 
 # Append SSM-retrieved secrets (never hardcode these in the heredoc)

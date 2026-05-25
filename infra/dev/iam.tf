@@ -82,6 +82,18 @@ resource "aws_iam_policy" "pr_reviewer" {
           "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter/pr-reviewer/${var.environment}/*"
         ]
       },
+
+      # ── Cognito — admin user management ──────────────────────────────────────
+      {
+        Sid    = "CognitoUserManagement"
+        Effect = "Allow"
+        Action = [
+          "cognito-idp:ListUsers",
+          "cognito-idp:AdminCreateUser",
+          "cognito-idp:AdminDeleteUser",
+        ]
+        Resource = var.enable_cognito ? [aws_cognito_user_pool.pr_reviewer[0].arn] : ["arn:aws:cognito-idp:${var.aws_region}:${local.account_id}:userpool/*"]
+      },
     ]
   })
 }
