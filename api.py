@@ -19,6 +19,7 @@ Then trigger a review:
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -148,13 +149,22 @@ def _check_dynamodb() -> None:
             client.create_table(
                 TableName=table,
                 AttributeDefinitions=[
-                    {"AttributeName": "PK", "AttributeType": "S"},
-                    {"AttributeName": "SK", "AttributeType": "S"},
+                    {"AttributeName": "PK",         "AttributeType": "S"},
+                    {"AttributeName": "SK",         "AttributeType": "S"},
+                    {"AttributeName": "created_at", "AttributeType": "S"},
                 ],
                 KeySchema=[
                     {"AttributeName": "PK", "KeyType": "HASH"},
                     {"AttributeName": "SK", "KeyType": "RANGE"},
                 ],
+                GlobalSecondaryIndexes=[{
+                    "IndexName": "SK-index",
+                    "KeySchema": [
+                        {"AttributeName": "SK",         "KeyType": "HASH"},
+                        {"AttributeName": "created_at", "KeyType": "RANGE"},
+                    ],
+                    "Projection": {"ProjectionType": "ALL"},
+                }],
                 BillingMode="PAY_PER_REQUEST",
             )
             logger.info(f"DB   ✓  Table '{table}' created")
@@ -450,27 +460,16 @@ def admin_invite_requests(request: Request):
         raise HTTPException(status_code=403, detail="Admin access required")
     store = DynamoMemoryStore()
     try:
+        raw_items = store.query_all_by_type("request")  # GSI query, no scan
         items = []
-        kwargs: dict = {
-            "TableName": store.table_name,
-            "FilterExpression": "SK = :k",
-            "ExpressionAttributeValues": {":k": {"S": "request"}},
-        }
-        while True:
-            resp = store.client.scan(**kwargs)
-            for item in resp.get("Items", []):
-                pk = item.get("PK", {}).get("S", "")
-                if pk.startswith("invite_request:"):
-                    try:
-                        d = json.loads(item.get("value", {}).get("S", "{}"))
-                        items.append(d)
-                    except Exception:
-                        pass
-            if "LastEvaluatedKey" not in resp:
-                break
-            kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
-        items.sort(key=lambda x: x.get("requested_at", ""), reverse=True)
-        return {"requests": items}
+        for item in raw_items:
+            pk = item.get("PK", {}).get("S", "")
+            if pk.startswith("invite_request:"):
+                try:
+                    items.append(json.loads(item.get("value", {}).get("S", "{}")))
+                except Exception:
+                    pass
+        return {"requests": items}  # already newest-first from GSI
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -769,44 +768,24 @@ def eval_metrics():
     """Aggregate metrics from all completed reviews plus any stored feedback."""
     store = DynamoMemoryStore()
     try:
-        # ── all lineage_run records ───────────────────
+        # ── all lineage_run records (GSI query, no scan) ──────────────────────
         runs: list[dict] = []
-        kw: dict = {
-            "TableName": store.table_name,
-            "FilterExpression": "SK = :k",
-            "ExpressionAttributeValues": {":k": {"S": "lineage_run"}},
-        }
-        while True:
-            resp = store.client.scan(**kw)
-            for item in resp.get("Items", []):
-                try:
-                    d = json.loads(item.get("value", {}).get("S", "{}"))
-                    d["thread_id"] = item.get("PK", {}).get("S", "")
-                    runs.append(d)
-                except Exception:
-                    pass
-            if "LastEvaluatedKey" not in resp:
-                break
-            kw["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        for item in store.query_all_by_type("lineage_run"):
+            try:
+                d = json.loads(item.get("value", {}).get("S", "{}"))
+                d["thread_id"] = item.get("PK", {}).get("S", "")
+                runs.append(d)
+            except Exception:
+                pass
 
-        # ── all feedback records ──────────────────────
+        # ── all feedback records (GSI query, no scan) ─────────────────────────
         feedbacks: dict[str, dict] = {}
-        kw2: dict = {
-            "TableName": store.table_name,
-            "FilterExpression": "SK = :k",
-            "ExpressionAttributeValues": {":k": {"S": "eval_feedback"}},
-        }
-        while True:
-            resp = store.client.scan(**kw2)
-            for item in resp.get("Items", []):
-                tid = item.get("PK", {}).get("S", "")
-                try:
-                    feedbacks[tid] = json.loads(item.get("value", {}).get("S", "{}"))
-                except Exception:
-                    pass
-            if "LastEvaluatedKey" not in resp:
-                break
-            kw2["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        for item in store.query_all_by_type("eval_feedback"):
+            tid = item.get("PK", {}).get("S", "")
+            try:
+                feedbacks[tid] = json.loads(item.get("value", {}).get("S", "{}"))
+            except Exception:
+                pass
 
         scores = [r["final_score"] for r in runs if r.get("final_score") is not None]
         durations = [r["total_duration_ms"] for r in runs if r.get("total_duration_ms")]
@@ -882,34 +861,49 @@ def delete_db_record(thread_id: str, key: str):
     return {"deleted": True}
 
 
+# ─────────────────────────── pagination helpers ───────────────────────────────
+
+_PAGE_SIZE = 20
+
+
+def _encode_cursor(last_evaluated_key: dict | None) -> str | None:
+    if not last_evaluated_key:
+        return None
+    return base64.b64encode(json.dumps(last_evaluated_key).encode()).decode()
+
+
+def _decode_cursor(cursor: str) -> dict | None:
+    if not cursor:
+        return None
+    try:
+        return json.loads(base64.b64decode(cursor).decode())
+    except Exception:
+        return None
+
+
 # ─────────────────────────── lineage endpoints ───────────────────────────────
 
 
 @app.get("/lineage")
-def list_lineage_runs():
-    """List all PR review run summaries (lineage_run records)."""
+def list_lineage_runs(limit: int = _PAGE_SIZE, cursor: str = ""):
+    """List PR review run summaries, newest first. Supports cursor pagination."""
     store = DynamoMemoryStore()
     try:
+        items, next_key = store.query_by_type(
+            "lineage_run",
+            limit=min(limit, 100),
+            cursor=_decode_cursor(cursor),
+            newest_first=True,
+        )
         runs = []
-        kwargs: dict = {
-            "TableName": store.table_name,
-            "FilterExpression": "SK = :key",
-            "ExpressionAttributeValues": {":key": {"S": "lineage_run"}},
-        }
-        while True:
-            resp = store.client.scan(**kwargs)
-            for item in resp.get("Items", []):
-                val = item.get("value", {}).get("S", "{}")
-                try:
-                    data = json.loads(val)
-                except Exception:
-                    data = {}
-                runs.append({"thread_id": item.get("PK", {}).get("S", ""), **data})
-            if "LastEvaluatedKey" not in resp:
-                break
-            kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
-        runs.sort(key=lambda r: r.get("started_at", ""), reverse=True)
-        return {"runs": runs}
+        for item in items:
+            val = item.get("value", {}).get("S", "{}")
+            try:
+                data = json.loads(val)
+            except Exception:
+                data = {}
+            runs.append({"thread_id": item.get("PK", {}).get("S", ""), **data})
+        return {"runs": runs, "next_cursor": _encode_cursor(next_key)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

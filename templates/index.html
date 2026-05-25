@@ -145,8 +145,8 @@
 
   <!-- ── All past reviews ── -->
   <div class="past-reviews-head">
-    <h2>All PR Reviews</h2>
-    <button class="btn-ghost" onclick="loadPastReviews()">↻ Refresh</button>
+    <h2>All PR Reviews <span id="past-reviews-count" style="font-size:13px;font-weight:400;color:var(--muted)"></span></h2>
+    <button class="btn-ghost" onclick="loadPastReviews(true)">↻ Refresh</button>
   </div>
   <div id="past-reviews-error" class="error-box" style="margin-top:0"></div>
   <div class="card" style="padding:0;overflow:hidden">
@@ -166,6 +166,9 @@
           <tr><td colspan="6"><div class="empty-state"><div class="big">⏳</div>Loading…</div></td></tr>
         </tbody>
       </table>
+    </div>
+    <div id="past-reviews-more" style="display:none;padding:12px 16px;border-top:1px solid var(--border);text-align:center">
+      <button class="btn-ghost btn-sm" onclick="loadPastReviews(false)">Load more</button>
     </div>
   </div>
 
@@ -226,6 +229,9 @@
       <div id="lineage-error" class="error-box" style="margin-top:0;margin-bottom:10px"></div>
       <div id="run-list" class="run-list">
         <div class="empty-state"><div class="big">⏳</div>Loading…</div>
+      </div>
+      <div id="lineage-more" style="display:none;padding:10px 0;text-align:center">
+        <button class="btn-ghost btn-sm" onclick="loadLineageList(false)">Load more</button>
       </div>
     </div>
 
@@ -718,7 +724,7 @@ async function startReview() {
       );
     }
     renderResults(await resp.json(), prUrl);
-    loadPastReviews();
+    loadPastReviews(true);
   } catch (err) {
     showReviewError(err.message);
   } finally {
@@ -738,30 +744,57 @@ function jumpToLineage(threadId) {
 
 // ── Past Reviews (main page history) ──
 
-async function loadPastReviews() {
-  const errEl = document.getElementById("past-reviews-error");
-  errEl.style.display = "none";
-  const tbody = document.getElementById("past-reviews-tbody");
-  tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state" style="padding:24px 0"><div class="big" style="font-size:28px">⏳</div>Loading…</div></td></tr>';
+let _pastReviewsCursor = null;
+let _pastReviewsTotal  = 0;
+
+async function loadPastReviews(reset = true) {
+  const errEl   = document.getElementById("past-reviews-error");
+  const moreEl  = document.getElementById("past-reviews-more");
+  const countEl = document.getElementById("past-reviews-count");
+  const tbody   = document.getElementById("past-reviews-tbody");
+  errEl.style.display  = "none";
+  moreEl.style.display = "none";
+
+  if (reset) {
+    _pastReviewsCursor = null;
+    _pastReviewsTotal  = 0;
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state" style="padding:24px 0"><div class="big" style="font-size:28px">⏳</div>Loading…</div></td></tr>';
+  } else {
+    // "Load more" — disable the button while fetching
+    const btn = moreEl.querySelector("button");
+    if (btn) { btn.disabled = true; btn.textContent = "Loading…"; }
+  }
+
   try {
-    const resp = await fetch("/lineage");
+    const url = "/lineage" + (_pastReviewsCursor ? "?cursor=" + encodeURIComponent(_pastReviewsCursor) : "");
+    const resp = await fetch(url);
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     const data = await resp.json();
-    renderPastReviews(data.runs || []);
+    const runs = data.runs || [];
+    _pastReviewsCursor = data.next_cursor || null;
+    _pastReviewsTotal += runs.length;
+
+    if (reset) {
+      renderPastReviews(runs);
+    } else {
+      appendPastReviews(runs);
+    }
+
+    countEl.textContent = _pastReviewsTotal
+      ? `(${_pastReviewsTotal}${_pastReviewsCursor ? "+" : ""})`
+      : "";
+    moreEl.style.display = _pastReviewsCursor ? "block" : "none";
+    // re-enable button
+    const btn = moreEl.querySelector("button");
+    if (btn) { btn.disabled = false; btn.textContent = "Load more"; }
   } catch (err) {
     errEl.textContent = "Failed to load reviews: " + err.message;
     errEl.style.display = "block";
-    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state" style="padding:24px 0"><div class="big" style="font-size:28px">📭</div>No data</div></td></tr>';
+    if (reset) tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state" style="padding:24px 0"><div class="big" style="font-size:28px">📭</div>No data</div></td></tr>';
   }
 }
 
-function renderPastReviews(runs) {
-  const tbody = document.getElementById("past-reviews-tbody");
-  if (!runs.length) {
-    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state" style="padding:36px 0"><div class="big" style="font-size:32px">📭</div>No reviews yet. Run a PR review above.</div></td></tr>';
-    return;
-  }
-  tbody.innerHTML = runs.map(r => {
+function _buildPastReviewRow(r) {
     const score = r.final_score != null ? r.final_score.toFixed(1) : "—";
     const cls   = r.final_score != null ? scoreClass(r.final_score) : "";
     const dur   = fmtDuration(r.total_duration_ms);
@@ -798,7 +831,23 @@ function renderPastReviews(runs) {
         ${isAdmin ? `<button class="btn-danger btn-sm" style="margin-left:4px" onclick="deleteReview(${escHtml(JSON.stringify(tid))},this)" title="Delete all records for this review">Delete</button>` : ""}
       </td>
     </tr>`;
-  }).join("");
+}
+
+function renderPastReviews(runs) {
+  const tbody = document.getElementById("past-reviews-tbody");
+  if (!runs.length) {
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state" style="padding:36px 0"><div class="big" style="font-size:32px">📭</div>No reviews yet. Run a PR review above.</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = runs.map(_buildPastReviewRow).join("");
+}
+
+function appendPastReviews(runs) {
+  const tbody = document.getElementById("past-reviews-tbody");
+  // Remove empty-state row if present
+  const empty = tbody.querySelector("tr td[colspan]");
+  if (empty) empty.closest("tr").remove();
+  tbody.insertAdjacentHTML("beforeend", runs.map(_buildPastReviewRow).join(""));
 }
 
 // Navigate to DB tab, pre-filter by threadId
@@ -927,26 +976,52 @@ let allRuns = [];
 let selectedThreadId = null;
 let selectedAgent = null;
 let currentLineage = null;
+let _lineageCursor = null;
 
-async function loadLineageList() {
-  document.getElementById("run-list").innerHTML = '<div class="empty-state"><div class="big">⏳</div>Loading…</div>';
-  const errEl = document.getElementById("lineage-error"); errEl.style.display = "none";
+async function loadLineageList(reset = true) {
+  const errEl  = document.getElementById("lineage-error");
+  const moreEl = document.getElementById("lineage-more");
+  errEl.style.display  = "none";
+  moreEl.style.display = "none";
+
+  if (reset) {
+    _lineageCursor = null;
+    allRuns = [];
+    document.getElementById("run-list").innerHTML = '<div class="empty-state"><div class="big">⏳</div>Loading…</div>';
+  } else {
+    const btn = moreEl.querySelector("button");
+    if (btn) { btn.disabled = true; btn.textContent = "Loading…"; }
+  }
+
   try {
-    const resp = await fetch("/lineage");
+    const url = "/lineage" + (_lineageCursor ? "?cursor=" + encodeURIComponent(_lineageCursor) : "");
+    const resp = await fetch(url);
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     const data = await resp.json();
-    allRuns = data.runs || [];
-    renderRunList();
-    if (pendingLineageSelect !== null) {
-      const tid = pendingLineageSelect;
-      pendingLineageSelect = null;
-      if (tid) selectRun(tid);
-    } else if (allRuns.length && !selectedThreadId) {
-      selectRun(allRuns[0].thread_id);
+    const runs = data.runs || [];
+    _lineageCursor = data.next_cursor || null;
+
+    if (reset) {
+      allRuns = runs;
+      renderRunList();
+      if (pendingLineageSelect !== null) {
+        const tid = pendingLineageSelect;
+        pendingLineageSelect = null;
+        if (tid) selectRun(tid);
+      } else if (allRuns.length && !selectedThreadId) {
+        selectRun(allRuns[0].thread_id);
+      }
+    } else {
+      allRuns = allRuns.concat(runs);
+      appendRunCards(runs);
     }
+
+    moreEl.style.display = _lineageCursor ? "block" : "none";
+    const btn = moreEl.querySelector("button");
+    if (btn) { btn.disabled = false; btn.textContent = "Load more"; }
   } catch (err) {
     errEl.textContent = "Failed to load lineage: " + err.message; errEl.style.display = "block";
-    document.getElementById("run-list").innerHTML = '<div class="empty-state">No data</div>';
+    if (reset) document.getElementById("run-list").innerHTML = '<div class="empty-state">No data</div>';
   }
 }
 
@@ -956,20 +1031,27 @@ function renderRunList() {
     el.innerHTML = '<div class="empty-state" style="padding:24px 0"><div class="big" style="font-size:28px">📭</div>No runs yet.<br>Run a PR review first.</div>';
     return;
   }
-  el.innerHTML = allRuns.map(r => {
-    const sc  = (r.final_score || 0).toFixed(1);
-    const cls = scoreClass(r.final_score || 0);
-    const time = r.started_at ? new Date(r.started_at).toLocaleString() : "";
-    const active = r.thread_id === selectedThreadId ? " selected" : "";
-    return `<div class="run-card${active}" onclick="selectRun(${escHtml(JSON.stringify(r.thread_id))})">
-      <div class="run-card-title" title="${escHtml(r.pr_title || r.thread_id)}">${escHtml(r.pr_title || r.thread_id)}</div>
-      <div class="run-card-meta">
-        <span class="score-pill ${cls}">${sc}</span>
-        <span>${escHtml(fmtDuration(r.total_duration_ms))}</span>
-      </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:4px">${escHtml(time)}</div>
-    </div>`;
-  }).join("");
+  el.innerHTML = allRuns.map(_buildRunCard).join("");
+}
+
+function _buildRunCard(r) {
+  const sc  = (r.final_score || 0).toFixed(1);
+  const cls = scoreClass(r.final_score || 0);
+  const time = r.started_at ? new Date(r.started_at).toLocaleString() : "";
+  const active = r.thread_id === selectedThreadId ? " selected" : "";
+  return `<div class="run-card${active}" onclick="selectRun(${escHtml(JSON.stringify(r.thread_id))})">
+    <div class="run-card-title" title="${escHtml(r.pr_title || r.thread_id)}">${escHtml(r.pr_title || r.thread_id)}</div>
+    <div class="run-card-meta">
+      <span class="score-pill ${cls}">${sc}</span>
+      <span>${escHtml(fmtDuration(r.total_duration_ms))}</span>
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">${escHtml(time)}</div>
+  </div>`;
+}
+
+function appendRunCards(runs) {
+  const el = document.getElementById("run-list");
+  el.insertAdjacentHTML("beforeend", runs.map(_buildRunCard).join(""));
 }
 
 async function selectRun(threadId) {
