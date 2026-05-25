@@ -2,17 +2,17 @@
 
 /* ── Design tokens ── */
 :root {
-  --radius: 8px;
-  --radius-lg: 12px;
+  --radius: 3px;
+  --radius-lg: 4px;
 
   /* dark theme (default) */
-  --bg:       #0d1117;
-  --surface:  #161b22;
-  --surface2: #1c2128;
-  --border:   #30363d;
-  --text:     #c9d1d9;
-  --muted:    #8b949e;
-  --heading:  #e6edf3;
+  --bg:       #0e0e0e;
+  --surface:  #111111;
+  --surface2: #161616;
+  --border:   #242424;
+  --text:     #dedad4;
+  --muted:    #555555;
+  --heading:  #dedad4;
   --accent:   #58a6ff;
   --green:    #3fb950;
   --yellow:   #d29922;
@@ -21,13 +21,13 @@
   --orange:   #e3b341;
   --orange2:  #f0883e;
 
-  --btn-text:       #0d1117;
-  --error-bg:       #2d1117;
-  --success-bg:     #0d2117;
-  --warning-bg:     #2b1f00;
-  --high-bg:        #2b1400;
-  --info-bg:        #0d1a2d;
-  --modal-overlay:  rgba(0,0,0,0.7);
+  --btn-text:       #0e0e0e;
+  --error-bg:       #1a0a09;
+  --success-bg:     #091a0d;
+  --warning-bg:     #1a1400;
+  --high-bg:        #1a0d00;
+  --info-bg:        #090f1a;
+  --modal-overlay:  rgba(0,0,0,0.8);
 
   --c-security:   #f85149;
   --c-code:       #d29922;
@@ -37,13 +37,13 @@
 }
 
 [data-theme="light"] {
-  --bg:       #ffffff;
-  --surface:  #f6f8fa;
-  --surface2: #eaeef2;
-  --border:   #d0d7de;
-  --text:     #24292f;
-  --muted:    #57606a;
-  --heading:  #24292f;
+  --bg:       #f8f7f4;
+  --surface:  #f0ede8;
+  --surface2: #e8e5e0;
+  --border:   #d4d1ca;
+  --text:     #111111;
+  --muted:    #888888;
+  --heading:  #111111;
   --accent:   #0969da;
   --green:    #1a7f37;
   --yellow:   #9a6700;
@@ -52,7 +52,7 @@
   --orange:   #bc4c00;
   --orange2:  #953800;
 
-  --btn-text:      #ffffff;
+  --btn-text:      #f8f7f4;
   --error-bg:      #ffebe9;
   --success-bg:    #dafbe1;
   --warning-bg:    #fff8c5;
@@ -71,8 +71,8 @@
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  font-size: 16px;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 15px;
   line-height: 1.6;
   min-height: 100vh;
   display: flex;
@@ -104,16 +104,18 @@ header p {
 .theme-toggle {
   position: absolute;
   top: 0; right: 0;
-  background: var(--surface2);
+  background: none;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
+  border-radius: 0;
+  color: var(--muted);
   cursor: pointer;
-  font-size: 18px;
-  padding: 8px 14px;
+  font-family: inherit;
+  font-size: 16px;
+  padding: 5px 10px;
   line-height: 1;
+  transition: color 0.15s, border-color 0.15s;
 }
-.theme-toggle:hover { border-color: var(--accent); opacity: 1; }
+.theme-toggle:hover { color: var(--text); border-color: var(--text); opacity: 1; }
 
 /* ── Shared headings ── */
 .section-title { font-size: 16px; font-weight: 600; color: var(--heading); }
@@ -285,7 +287,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 #review-body li { margin: 6px 0; }
 #review-body code {
   background: var(--surface2); border-radius: 4px;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
   font-size: 14px; padding: 2px 7px;
 }
 #review-body pre {
@@ -340,7 +342,7 @@ table.db-table tr:hover td { background: var(--surface2); }
 table.db-table tr[onclick]:hover td { background: var(--surface2); cursor: pointer; }
 
 .cell-mono {
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
   font-size: 13px; word-break: break-all;
 }
 .value-preview {
@@ -471,7 +473,7 @@ table.db-table tr[onclick]:hover td { background: var(--surface2); cursor: point
 .flow-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
 .flow-row:last-child { margin-bottom: 0; }
 .flow-key  {
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
   font-size: 13px; color: var(--accent); min-width: 200px; flex-shrink: 0;
 }
 .flow-desc { color: var(--muted); font-size: 14px; }
@@ -497,7 +499,7 @@ table.db-table tr[onclick]:hover td { background: var(--surface2); cursor: point
 .tag-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .tag {
   background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
   font-size: 13px; color: var(--muted); padding: 4px 10px;
 }
 
@@ -530,7 +532,7 @@ table.db-table tr[onclick]:hover td { background: var(--surface2); cursor: point
 .modal-body { overflow-y: auto; padding: 20px 24px; }
 .modal-body pre {
   background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
   font-size: 13px; line-height: 1.6; overflow-x: auto;
   padding: 16px; white-space: pre-wrap; word-break: break-all;
 }
