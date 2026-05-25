@@ -273,9 +273,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   font-size: 13px; font-weight: 600;
   padding: 5px 12px; white-space: nowrap;
 }
-.badge.blocked    { background: var(--error-bg);   border: 1px solid var(--red);    color: var(--red);    }
-.badge.good       { background: var(--success-bg); border: 1px solid var(--green);  color: var(--green);  }
-.badge.needs-work { background: var(--warning-bg); border: 1px solid var(--yellow); color: var(--yellow); }
+.badge.blocked    { background: transparent; border: 1px solid var(--red);    color: var(--red);    }
+.badge.good       { background: transparent; border: 1px solid var(--green);  color: var(--green);  }
+.badge.needs-work { background: transparent; border: 1px solid var(--yellow); color: var(--yellow); }
 
 #review-body { font-size: 15px; line-height: 1.7; color: var(--text); }
 #review-body h1, #review-body h2, #review-body h3 { color: var(--heading); margin: 24px 0 10px; font-weight: 600; }
@@ -391,10 +391,11 @@ table.db-table tr[onclick]:hover td { background: var(--surface2); cursor: point
 
 .score-pill {
   border-radius: var(--radius); font-size: 13px; font-weight: 700; padding: 3px 10px;
+  display: inline-block;
 }
-.score-pill.green  { background: var(--success-bg); border: 1px solid var(--green);  color: var(--green);  }
-.score-pill.yellow { background: var(--warning-bg); border: 1px solid var(--yellow); color: var(--yellow); }
-.score-pill.red    { background: var(--error-bg);   border: 1px solid var(--red);    color: var(--red);    }
+.score-pill.green  { background: transparent; border: 1px solid var(--green);  color: var(--green);  }
+.score-pill.yellow { background: transparent; border: 1px solid var(--yellow); color: var(--yellow); }
+.score-pill.red    { background: transparent; border: 1px solid var(--red);    color: var(--red);    }
 
 .lineage-main { flex: 1; min-width: 0; }
 
