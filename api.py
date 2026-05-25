@@ -193,6 +193,7 @@ _AUTH_PUBLIC = {
     "/review/detail",
     "/eval/metrics",
     "/user/settings",
+    "/invite/request",
 }
 
 
@@ -420,6 +421,68 @@ def admin_delete_user(email: str, request: Request):
         return {"deleted": True, "email": email}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class InviteRequestBody(BaseModel):
+    email: str
+
+
+@app.post("/invite/request")
+def invite_request(req: InviteRequestBody):
+    """Store an access-request email so admins can invite from the Admin tab."""
+    email = req.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    store = DynamoMemoryStore()
+    store.put(
+        f"invite_request:{email}",
+        "request",
+        json.dumps({"email": email, "requested_at": datetime.now(tz=timezone.utc).isoformat()}),
+        ttl_seconds=30 * 24 * 3600,
+    )
+    return {"ok": True}
+
+
+@app.get("/admin/invite-requests")
+def admin_invite_requests(request: Request):
+    """List pending access requests (admin only)."""
+    if not _is_admin(request):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    store = DynamoMemoryStore()
+    try:
+        items = []
+        kwargs: dict = {
+            "TableName": store.table_name,
+            "FilterExpression": "SK = :k",
+            "ExpressionAttributeValues": {":k": {"S": "request"}},
+        }
+        while True:
+            resp = store.client.scan(**kwargs)
+            for item in resp.get("Items", []):
+                pk = item.get("PK", {}).get("S", "")
+                if pk.startswith("invite_request:"):
+                    try:
+                        d = json.loads(item.get("value", {}).get("S", "{}"))
+                        items.append(d)
+                    except Exception:
+                        pass
+            if "LastEvaluatedKey" not in resp:
+                break
+            kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        items.sort(key=lambda x: x.get("requested_at", ""), reverse=True)
+        return {"requests": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/admin/invite-requests/{email:path}")
+def admin_dismiss_invite_request(email: str, request: Request):
+    """Remove a pending invite request (admin only)."""
+    if not _is_admin(request):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    store = DynamoMemoryStore()
+    store.delete(f"invite_request:{email.strip().lower()}", "request")
+    return {"ok": True}
 
 
 # ─────────────────────────── models ──────────────────────────────────────────

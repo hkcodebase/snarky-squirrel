@@ -41,9 +41,20 @@
 <div id="tab-review" class="tab-panel active">
 
   <!-- Shown only when auth is enabled and user is not logged in -->
-  <div id="auth-gate-banner" style="display:none" class="card" style="text-align:center;padding:18px 24px;border:1px solid var(--border)">
-    <span style="font-size:15px">🔒 <a href="/auth/login" style="color:var(--accent);font-weight:600">Login</a> to submit PR reviews and post comments to GitHub.</span>
-    <span style="font-size:13px;color:var(--muted);margin-left:8px">Past reviews below are public.</span>
+  <div id="auth-gate-banner" style="display:none" class="card" style="padding:20px 28px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <span style="font-size:15px">🔒 <a href="/auth/login" style="color:var(--accent);font-weight:600">Login</a> to submit PR reviews.</span>
+      <span style="font-size:13px;color:var(--muted)">Past reviews below are public.</span>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:14px">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:10px">Don't have an account? Request access and an admin will invite you.</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="invite-req-email" type="email" placeholder="your@email.com"
+               style="width:240px" />
+        <button class="btn-ghost btn-sm" onclick="requestInvite()">Request access</button>
+        <span id="invite-req-msg" style="font-size:13px"></span>
+      </div>
+    </div>
   </div>
 
   <div class="card" style="margin-bottom:16px;padding:24px 32px">
@@ -82,20 +93,21 @@
         <input id="github-token" type="password" autocomplete="off" spellcheck="false"
                placeholder="GitHub personal access token (ghp_…)"
                style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:inherit;font-size:14px;padding:10px 14px;outline:none;transition:border-color 0.15s"
-               oninput="localStorage.setItem('gh-token', this.value)"
+               oninput="localStorage.setItem('gh-token', this.value); updatePostCommentHint()"
                onfocus="this.style.borderColor='var(--accent)'"
                onblur="this.style.borderColor='var(--border)'" />
         <button type="button" class="btn-ghost btn-sm" style="flex-shrink:0"
                 onclick="var i=document.getElementById('github-token');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'Show':'Hide'">Show</button>
       </div>
       <p style="font-size:12px;color:var(--muted)">
-        Your token is used only for this request and never stored server-side.
+        Only required to post the review as a GitHub comment — leave blank to run a review without commenting (falls back to the server token).
         <a href="https://github.com/settings/tokens/new?scopes=repo&description=Snarky+Squirrel" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none">Generate a token ↗</a>
       </p>
     </div>
     <div class="post-toggle">
-      <input type="checkbox" id="post-comment" />
+      <input type="checkbox" id="post-comment" onchange="updatePostCommentHint()" />
       <label for="post-comment">Also post review comment to GitHub</label>
+      <span id="post-comment-hint" style="display:none;font-size:12px;color:var(--yellow);margin-left:8px">— requires a token above</span>
     </div>
   </div>
 
@@ -320,6 +332,26 @@
     <div id="admin-invite-msg" style="margin-top:10px;font-size:13px"></div>
   </div>
 
+  <div class="card" style="margin-bottom:16px;padding:0;overflow:hidden">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px">
+      <h2 style="font-size:16px;font-weight:700;margin:0">Access Requests</h2>
+      <button class="btn-ghost" onclick="loadInviteRequests()">↻ Refresh</button>
+    </div>
+    <div id="admin-requests-error" class="error-box" style="margin:0 20px 12px"></div>
+    <table class="db-table" style="font-size:13px">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Requested</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="admin-requests-tbody">
+        <tr><td colspan="3"><div class="empty-state" style="padding:20px 0">No pending requests.</div></td></tr>
+      </tbody>
+    </table>
+  </div>
+
   <div class="card" style="padding:0;overflow:hidden">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px">
       <h2 style="font-size:16px;font-weight:700;margin:0">Cognito Users</h2>
@@ -529,7 +561,7 @@ function switchTab(name) {
   });
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
   document.getElementById("tab-" + name).classList.add("active");
-  if (name === "admin") loadAdminUsers();
+  if (name === "admin") { loadAdminUsers(); loadInviteRequests(); }
   if (name === "db")      loadRecords();
   if (name === "lineage") loadLineageList();
   if (name === "eval")    loadOnlineMetrics();
@@ -1316,6 +1348,40 @@ async function submitFeedback(threadId, thumbs) {
   }
 }
 
+// ── Token / post-comment hint ─────────────────────────────────────────────────
+
+function updatePostCommentHint() {
+  const checked  = document.getElementById("post-comment").checked;
+  const hasToken = !!document.getElementById("github-token").value.trim();
+  const hint     = document.getElementById("post-comment-hint");
+  if (hint) hint.style.display = checked && !hasToken ? "inline" : "none";
+}
+
+// ── Request invite ────────────────────────────────────────────────────────────
+
+async function requestInvite() {
+  const emailEl = document.getElementById("invite-req-email");
+  const msgEl   = document.getElementById("invite-req-msg");
+  const email   = emailEl.value.trim();
+  if (!email) { msgEl.textContent = "Enter your email."; msgEl.style.color = "var(--red)"; return; }
+  msgEl.textContent = "Sending…"; msgEl.style.color = "var(--muted)";
+  try {
+    const resp = await fetch("/invite/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.detail || "HTTP " + resp.status);
+    msgEl.textContent = "Request sent — an admin will invite you shortly.";
+    msgEl.style.color = "var(--green)";
+    emailEl.value = "";
+  } catch (err) {
+    msgEl.textContent = err.message;
+    msgEl.style.color = "var(--red)";
+  }
+}
+
 // ── Admin: delete review ──────────────────────────────────────────────────────
 
 async function deleteReview(threadId, btn) {
@@ -1393,6 +1459,61 @@ async function adminInviteUser() {
   } catch (err) {
     msgEl.textContent = err.message;
     msgEl.style.color = "var(--red)";
+  }
+}
+
+async function loadInviteRequests() {
+  const errEl = document.getElementById("admin-requests-error");
+  const tbody = document.getElementById("admin-requests-tbody");
+  errEl.style.display = "none";
+  try {
+    const resp = await fetch("/admin/invite-requests");
+    if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).detail || "HTTP " + resp.status);
+    const { requests } = await resp.json();
+    if (!requests.length) {
+      tbody.innerHTML = '<tr><td colspan="3"><div class="empty-state" style="padding:20px 0">No pending requests.</div></td></tr>';
+      return;
+    }
+    tbody.innerHTML = requests.map(r => `<tr>
+      <td style="font-weight:500">${escHtml(r.email)}</td>
+      <td style="color:var(--muted);font-size:12px">${r.requested_at ? new Date(r.requested_at).toLocaleString() : "—"}</td>
+      <td style="white-space:nowrap;display:flex;gap:6px">
+        <button class="btn-primary btn-sm" onclick="adminInviteFromRequest(${escHtml(JSON.stringify(r.email))},this)">Invite</button>
+        <button class="btn-ghost btn-sm" onclick="adminDismissRequest(${escHtml(JSON.stringify(r.email))},this)">Dismiss</button>
+      </td>
+    </tr>`).join("");
+  } catch (err) {
+    errEl.textContent = err.message; errEl.style.display = "block";
+    tbody.innerHTML = "";
+  }
+}
+
+async function adminInviteFromRequest(email, btn) {
+  btn.disabled = true; btn.textContent = "Inviting…";
+  try {
+    const resp = await fetch("/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.detail || "HTTP " + resp.status);
+    // dismiss the request now that the invite was sent
+    await fetch("/admin/invite-requests/" + encodeURIComponent(email), { method: "DELETE" });
+    await Promise.all([loadInviteRequests(), loadAdminUsers()]);
+  } catch (err) {
+    alert("Invite failed: " + err.message);
+    btn.disabled = false; btn.textContent = "Invite";
+  }
+}
+
+async function adminDismissRequest(email, btn) {
+  btn.disabled = true;
+  try {
+    await fetch("/admin/invite-requests/" + encodeURIComponent(email), { method: "DELETE" });
+    await loadInviteRequests();
+  } catch (err) {
+    alert("Failed: " + err.message); btn.disabled = false;
   }
 }
 
