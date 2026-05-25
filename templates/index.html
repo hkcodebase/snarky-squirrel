@@ -615,18 +615,28 @@ async function startReview() {
       body: JSON.stringify({ pr_url: prUrl, post_comment: document.getElementById("post-comment").checked, github_token: document.getElementById("github-token").value.trim() }),
     });
     if (resp.status === 401) {
-      showReviewError("Login required to submit a review. Click Login in the top-right corner.");
+      showReviewError("Login required — click Login in the top-right corner.");
       return;
     }
     if (!resp.ok) {
-      let detail = "Server error " + resp.status;
-      try { const j = await resp.json(); detail = j.detail || detail; } catch (_) {}
-      throw new Error(detail);
+      let detail = "";
+      try { const j = await resp.json(); detail = j.detail || ""; } catch (_) {}
+      const fallback = {
+        400: "Missing or invalid GitHub token — paste yours in the token field above.",
+        403: "Access denied. Your token may lack 'repo' scope — use the Generate link above.",
+        404: "PR not found. Check the URL and make sure your token can access this repo.",
+        422: "Invalid PR URL — expected: https://github.com/owner/repo/pull/42",
+        429: "GitHub rate limit hit — wait a minute and try again.",
+        500: "Something went wrong on the server. Check your token and PR URL, then try again.",
+      };
+      throw new Error(
+        detail && detail !== "Internal Server Error" ? detail : (fallback[resp.status] || `Request failed (HTTP ${resp.status})`)
+      );
     }
     renderResults(await resp.json(), prUrl);
     loadPastReviews();
   } catch (err) {
-    showReviewError("Review failed: " + err.message);
+    showReviewError(err.message);
   } finally {
     showStatus(false);
   }
