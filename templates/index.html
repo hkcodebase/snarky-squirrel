@@ -736,11 +736,18 @@ function renderPastReviews(runs) {
     const tid = r.thread_id || "";
     const title = r.pr_title || tid;
     const repo  = (r.pr_repo || "") + (r.pr_number ? " #" + r.pr_number : "");
+    const ghUrl = r.pr_repo && r.pr_number ? `https://github.com/${r.pr_repo}/pull/${r.pr_number}` : null;
     return `<tr style="cursor:pointer" onclick="openReviewDetail(${escHtml(JSON.stringify(tid))})">
       <td style="max-width:260px">
         <a href="#" style="font-size:14px;font-weight:600;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;text-decoration:none"
            title="${escHtml(title)}" onclick="event.stopPropagation();openReviewDetail(${escHtml(JSON.stringify(tid))});return false">${escHtml(title)}</a>
-        <div style="font-size:12px;color:var(--muted);font-family:monospace;margin-top:2px">${escHtml(repo)}</div>
+        ${ghUrl
+          ? `<a href="${escHtml(ghUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()"
+               style="font-size:12px;color:var(--muted);font-family:monospace;margin-top:2px;display:block;text-decoration:none"
+               onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'"
+               title="Open PR on GitHub">${escHtml(repo)} ↗</a>`
+          : `<div style="font-size:12px;color:var(--muted);font-family:monospace;margin-top:2px">${escHtml(repo)}</div>`
+        }
       </td>
       <td><span class="score-pill ${cls}">${escHtml(score)}</span>${renderBreakdownChips(r.score_breakdown)}</td>
       <td style="color:var(--muted);white-space:nowrap">${escHtml(dur)}</td>
@@ -1152,14 +1159,28 @@ async function openReviewDetail(tid) {
     const d = await resp.json();
 
     // header
-    document.getElementById("rd-title").textContent =
-      d.pr_title || tid;
+    const prUrl = d.pr_repo && d.pr_number
+      ? `https://github.com/${d.pr_repo}/pull/${d.pr_number}`
+      : null;
+    const titleEl = document.getElementById("rd-title");
+    if (prUrl) {
+      titleEl.innerHTML = `<a href="${escHtml(prUrl)}" target="_blank" rel="noopener noreferrer"
+        style="color:inherit;text-decoration:none;border-bottom:1px solid var(--border)"
+        onmouseover="this.style.borderBottomColor='var(--accent)'"
+        onmouseout="this.style.borderBottomColor='var(--border)'"
+        >${escHtml(d.pr_title || tid)}</a>`;
+    } else {
+      titleEl.textContent = d.pr_title || tid;
+    }
     const repo = (d.pr_repo || "") + (d.pr_number ? " #" + d.pr_number : "");
     const date = d.started_at ? new Date(d.started_at).toLocaleString() : "";
     const dur  = fmtDuration(d.total_duration_ms);
-    const meta = [repo, date, dur, d.files_count != null ? d.files_count + " files" : ""]
-      .filter(Boolean).join(" · ");
-    document.getElementById("rd-meta").textContent = meta;
+    const metaParts = [date, dur, d.files_count != null ? d.files_count + " files" : ""].filter(Boolean).join(" · ");
+    const metaEl = document.getElementById("rd-meta");
+    metaEl.innerHTML = (prUrl
+      ? `<a href="${escHtml(prUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);font-family:monospace">${escHtml(prUrl)}</a>`
+      : escHtml(repo))
+      + (metaParts ? ` · ${escHtml(metaParts)}` : "");
 
     // score circle
     const score = d.final_score != null ? d.final_score : null;
