@@ -20,26 +20,26 @@ structured review comment to GitHub.
 
 ```
                         ┌──────────────────────────────────────────┐
-                        │           AWS Cognito                     │
+                        │           AWS Cognito                    │
                         │  Hosted UI (OAuth2) + RS256 JWT tokens   │
                         └───────────────┬──────────────────────────┘
                                         │  auth cookies
 User Browser ──HTTPS──► api.py (FastAPI + nginx)
                           │
-              ┌───────────┴──────────────────────────────────────┐
+              ┌───────────┴────────────────────────────────────────┐
               │  Auth layer                                        │
-              │  ├─ /auth/login  /auth/callback  /auth/logout     │
+              │  ├─ /auth/login  /auth/callback  /auth/logout      │
               │  └─ JWT validated on every protected request       │
               │                                                    │
               │  Web UI (Vanilla JS — single-page app)             │
-              │  ├─ Review PR      — submit URL, view report      │
-              │  ├─ All PR Reviews — paginated history + lineage  │
-              │  ├─ Data Lineage   — per-run agent trace sidebar  │
-              │  ├─ Evaluation     — offline / shadow / online    │
-              │  └─ Admin          — users, invites (admin only)  │
+              │  ├─ Review PR      — submit URL, view report       │
+              │  ├─ All PR Reviews — paginated history + lineage   │
+              │  ├─ Data Lineage   — per-run agent trace sidebar   │
+              │  ├─ Evaluation     — offline / shadow / online     │
+              │  └─ Admin          — users, invites (admin only)   │
               └───────────┬────────────────────────────────────────┘
                           │  POST /review
-              ┌───────────▼──────────────────────────────────────┐
+              ┌───────────▼────────────────────────────────────────┐
               │          LangGraph agent graph                     │
               │                                                    │
               │   START                                            │
@@ -50,28 +50,28 @@ User Browser ──HTTPS──► api.py (FastAPI + nginx)
               │              │   (LLM decides execution order)     │
               │              └─► summary       aggregates → END    │
               │                                                    │
-              │   Shared memory:  DynamoDB (per-thread KV store)  │
+              │   Shared memory:  DynamoDB (per-thread KV store)   │
               │   Checkpointer:   DynamoDB (LangGraph state)       │
               │   LLM:            Ollama / Docker Model / Bedrock  │
               └───────────┬────────────────────────────────────────┘
                           │
-              ┌───────────▼──────────────────────────────────────┐
+              ┌───────────▼────────────────────────────────────────┐
               │  DynamoDB (single-table design)                    │
               │                                                    │
-              │  PK=thread_id / SK=record_type                    │
-              │  GSI SK-index (hash=SK, range=created_at)         │
+              │  PK=thread_id / SK=record_type                     │
+              │  GSI SK-index (hash=SK, range=created_at)          │
               │  ├─ agent findings   TTL 72 h                      │
               │  ├─ lineage_run      queried by /lineage           │
               │  ├─ eval_feedback    queried by /eval/metrics      │
               │  ├─ user_settings    PK=user:{email}               │
               │  └─ invite requests  PK=invite_request:{email}     │
-              └───────────────────────────────────────────────────┘
+              └────────────────────────────────────────────────────┘
                           │
-              ┌───────────▼──────────────────────────────────────┐
+              ┌───────────▼────────────────────────────────────────┐
               │  GitHub API                                        │
-              │  ├─ Fetch PR diff + metadata                      │
-              │  └─ Post review comment (optional, token-gated)   │
-              └───────────────────────────────────────────────────┘
+              │  ├─ Fetch PR diff + metadata                       │
+              │  └─ Post review comment (optional, token-gated)    │
+              └────────────────────────────────────────────────────┘
 ```
 
 ### Agent pipeline
