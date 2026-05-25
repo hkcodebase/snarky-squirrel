@@ -18,10 +18,10 @@
      onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.85'">HK</a>
   <h1>🐿️ Snarky Squirrel</h1>
   <p>Multi-agent AI system for PR reviews</p>
-  <div style="display:flex;align-items:center;gap:12px;margin-left:auto">
-    <span id="auth-user" style="font-size:13px;opacity:0.75"></span>
-    <a id="auth-login-btn" href="/auth/login"  style="display:none;font-size:13px;padding:4px 12px;border:1px solid currentColor;border-radius:6px;text-decoration:none;opacity:0.8">Login</a>
-    <a id="auth-btn"       href="/auth/logout" style="display:none;font-size:13px;padding:4px 12px;border:1px solid currentColor;border-radius:6px;text-decoration:none;opacity:0.8">Sign out</a>
+  <div style="position:absolute;top:0;right:48px;display:flex;align-items:center;gap:10px">
+    <span id="auth-user" style="font-size:13px;color:var(--muted)"></span>
+    <a id="auth-login-btn" href="/auth/login"  style="display:none;font-size:13px;padding:4px 12px;border:1px solid var(--green);border-radius:var(--radius);color:var(--green);text-decoration:none;transition:opacity 0.15s" onmouseover="this.style.opacity='0.75'" onmouseout="this.style.opacity='1'">Login</a>
+    <a id="auth-btn"       href="/auth/logout" style="display:none;font-size:13px;padding:4px 12px;border:1px solid var(--red);border-radius:var(--radius);color:var(--red);text-decoration:none;transition:opacity 0.15s"   onmouseover="this.style.opacity='0.75'" onmouseout="this.style.opacity='1'">Sign out</a>
   </div>
   <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">☀️</button>
 </header>
