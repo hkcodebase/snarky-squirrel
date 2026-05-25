@@ -72,7 +72,8 @@
     <div class="input-row">
       <input id="pr-url" type="url"
              placeholder="https://github.com/owner/repo/pull/42"
-             autocomplete="off" />
+             autocomplete="off"
+             oninput="localStorage.setItem('pr-url', this.value)" />
       <button id="review-btn" onclick="startReview()">Review PR</button>
     </div>
     <div style="margin-top:14px;display:flex;flex-direction:column;gap:6px">
@@ -1249,9 +1250,11 @@ async function submitFeedback(threadId, thumbs) {
 }
 
 // ── Init ──
-(function restoreToken() {
-  const saved = localStorage.getItem('gh-token');
-  if (saved) document.getElementById('github-token').value = saved;
+(function restoreInputs() {
+  const token = localStorage.getItem('gh-token');
+  if (token) document.getElementById('github-token').value = token;
+  const url = localStorage.getItem('pr-url');
+  if (url) document.getElementById('pr-url').value = url;
 })();
 loadPastReviews();
 </script>
