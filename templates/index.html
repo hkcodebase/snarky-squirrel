@@ -11,7 +11,7 @@
 
 <header>
   <h1>🐿️ Snarky Squirrel PR Reviewer</h1>
-  <p>Multi-agent AI code review</p>
+  <p>Multi-agent AI code review &nbsp;·&nbsp; <a href="https://hemantkumar.dev" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none;opacity:0.85">hemantkumar.dev</a></p>
   <div style="display:flex;align-items:center;gap:12px;margin-left:auto">
     <span id="auth-user" style="font-size:13px;opacity:0.75"></span>
     <a id="auth-login-btn" href="/auth/login"  style="display:none;font-size:13px;padding:4px 12px;border:1px solid currentColor;border-radius:6px;text-decoration:none;opacity:0.8">Login</a>
@@ -37,6 +37,29 @@
   <div id="auth-gate-banner" style="display:none" class="card" style="text-align:center;padding:18px 24px;border:1px solid var(--border)">
     <span style="font-size:15px">🔒 <a href="/auth/login" style="color:var(--accent);font-weight:600">Login</a> to submit PR reviews and post comments to GitHub.</span>
     <span style="font-size:13px;color:var(--muted);margin-left:8px">Past reviews below are public.</span>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;padding:24px 32px">
+    <h2 style="font-size:18px;font-weight:700;color:var(--heading);margin-bottom:10px">What is Snarky Squirrel?</h2>
+    <p style="color:var(--muted);margin-bottom:20px;font-size:15px">An open-source multi-agent AI system that reviews GitHub pull requests for code quality, security vulnerabilities, and best practices — powered by LangGraph and Claude.</p>
+    <ol style="list-style:none;display:grid;gap:12px;padding:0">
+      <li style="display:flex;align-items:flex-start;gap:12px">
+        <span style="flex-shrink:0;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--btn-text);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center">1</span>
+        <span>Paste a <strong>GitHub PR URL</strong> (e.g. <code style="font-size:13px;color:var(--accent)">https://github.com/owner/repo/pull/42</code>) in the input below.</span>
+      </li>
+      <li style="display:flex;align-items:flex-start;gap:12px">
+        <span style="flex-shrink:0;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--btn-text);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center">2</span>
+        <span>Click <strong>Review PR</strong> — four specialized agents run in parallel: Security, Code Quality, PR Review, and Summary.</span>
+      </li>
+      <li style="display:flex;align-items:flex-start;gap:12px">
+        <span style="flex-shrink:0;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--btn-text);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center">3</span>
+        <span>Receive a <strong>scored report</strong> (0 – 10) with severity-ranked findings and a plain-English summary.</span>
+      </li>
+      <li style="display:flex;align-items:flex-start;gap:12px">
+        <span style="flex-shrink:0;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--btn-text);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center">4</span>
+        <span>Optionally <strong>post the review as a comment</strong> directly to GitHub via the checkbox below.</span>
+      </li>
+    </ol>
   </div>
 
   <div id="review-submit-card" class="card">
@@ -307,7 +330,7 @@
   </div>
 </div>
 
-<footer id="app-footer">Powered by LangGraph</footer>
+<footer id="app-footer"><span id="footer-env-text">Powered by LangGraph</span> &nbsp;·&nbsp; <a href="https://hemantkumar.dev" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;opacity:0.75">hemantkumar.dev</a></footer>
 
 <script>
 // ════════════════════════════════════════════════
@@ -363,7 +386,7 @@ function toggleTheme() {
     const dbPart  = isLocal ? "DynamoDB Local" : "AWS DynamoDB";
     const envPart = isLocal ? "Local"          : "AWS";
 
-    document.getElementById("app-footer").textContent =
+    document.getElementById("footer-env-text").textContent =
       envPart + " · " + llmPart + " · " + dbPart + " · LangGraph";
   } catch (_) { /* keep default */ }
 })();
