@@ -269,9 +269,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .badges { display: flex; flex-wrap: wrap; gap: 10px; }
 .badge {
-  border-radius: 20px;
-  font-size: 14px; font-weight: 600;
-  padding: 6px 16px;
+  border-radius: var(--radius);
+  font-size: 13px; font-weight: 600;
+  padding: 5px 12px; white-space: nowrap;
 }
 .badge.blocked    { background: var(--error-bg);   border: 1px solid var(--red);    color: var(--red);    }
 .badge.good       { background: var(--success-bg); border: 1px solid var(--green);  color: var(--green);  }
@@ -390,7 +390,7 @@ table.db-table tr[onclick]:hover td { background: var(--surface2); cursor: point
 }
 
 .score-pill {
-  border-radius: 20px; font-size: 13px; font-weight: 700; padding: 3px 10px;
+  border-radius: var(--radius); font-size: 13px; font-weight: 700; padding: 3px 10px;
 }
 .score-pill.green  { background: var(--success-bg); border: 1px solid var(--green);  color: var(--green);  }
 .score-pill.yellow { background: var(--warning-bg); border: 1px solid var(--yellow); color: var(--yellow); }
