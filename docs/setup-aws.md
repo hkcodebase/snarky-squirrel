@@ -174,20 +174,7 @@ INFO  Uvicorn running on http://0.0.0.0:8080
 
 ### From the web UI
 
-Open `http://localhost:8080`, paste a GitHub PR URL, click **Review PR**.
-
-### From the CLI
-
-```bash
-# Live GitHub PR
-uv run python main.py --pr-url https://github.com/owner/repo/pull/42
-
-# Local diff file
-uv run python main.py --diff tests/fixtures/sample.diff
-
-# Save result to JSON
-uv run python main.py --pr-url https://github.com/owner/repo/pull/42 --output result.json
-```
+Open your app URL (e.g. `https://snarky.hemantkumar.dev`), paste a GitHub PR URL, click **Review PR**.
 
 ### From curl
 

@@ -19,7 +19,7 @@ review comment to GitHub.
 ## Architecture
 
 ```
-GitHub PR ──webhook──► api.py (FastAPI)   or   uv run python main.py --pr-url ...
+GitHub PR ──webhook──► api.py (FastAPI)
                           │  (nginx → HTTPS in production)
               ┌───────────┴──────────────────────────────┐
               │          LangGraph agent graph            │
@@ -70,7 +70,6 @@ A CRITICAL finding sets `should_block = true`.
 ```
 snarky-squirrel/
 ├── api.py                   FastAPI server — all HTTP endpoints
-├── main.py                  CLI entry point (no server required)
 ├── requirements-v2.txt      Python dependencies
 │
 ├── src/
@@ -130,7 +129,7 @@ snarky-squirrel/
 | `AWS_SECRET_ACCESS_KEY` | AWS credentials | `test` (local) | from Terraform output |
 | `DYNAMODB_ENDPOINT` | DynamoDB endpoint URL | `http://localhost:8000` | _(empty → real AWS)_ |
 | `DYNAMODB_TABLE` | Table name | `pr-review-local-memory` | `pr-review-memory-dev` |
-| `GITHUB_TOKEN` | GitHub PAT for fetching PR data | optional for CLI | required |
+| `GITHUB_TOKEN` | GitHub PAT for fetching PR data | optional (local) | required |
 | `WEBHOOK_SECRET` | HMAC secret for GitHub webhooks | `skip` | real secret |
 
 ---

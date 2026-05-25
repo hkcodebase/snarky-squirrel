@@ -178,19 +178,6 @@ curl http://localhost:8080/health
 
 Open `http://localhost:8080`, paste a GitHub PR URL, click **Review PR**.
 
-### From the CLI (no server needed)
-
-```bash
-# Local diff file — no GitHub token required
-uv run python main.py --diff tests/fixtures/sample.diff
-
-# Live GitHub PR — requires GITHUB_TOKEN in .env
-uv run python main.py --pr-url https://github.com/owner/repo/pull/42
-
-# Save full JSON output
-uv run python main.py --pr-url https://github.com/owner/repo/pull/42 --output result.json
-```
-
 ### From curl
 
 ```bash
