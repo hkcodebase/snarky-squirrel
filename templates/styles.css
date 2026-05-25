@@ -713,10 +713,10 @@ footer { margin-top: 56px; color: var(--muted); font-size: 14px; }
 }
 .breakdown-table tfoot tr td:first-child { color: var(--muted); font-weight: 400; font-size: 13px; }
 
-/* ── Responsive ── */
+/* ── Responsive — tablet ── */
 @media (max-width: 768px) {
-  body { padding: 28px 14px 80px; }
-  header h1 { font-size: 24px; }
+  body { padding: 28px 16px 80px; }
+  header h1 { font-size: 26px; }
   .card { padding: 20px 18px; }
   .shadow-config-grid, .compare-grid, .diff-cols { grid-template-columns: 1fr; }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
@@ -724,4 +724,79 @@ footer { margin-top: 56px; color: var(--muted); font-size: 14px; }
   .lineage-sidebar { width: 100%; }
   .detail-grid { grid-template-columns: 1fr; }
   .score-circle { width: 80px; height: 80px; font-size: 24px; }
+  .flow-key { min-width: 140px; }
+}
+
+/* ── Responsive — mobile ── */
+@media (max-width: 600px) {
+  body { padding: 16px 12px 72px; font-size: 14px; }
+
+  /* Header: push title below the absolute HK / auth / toggle row */
+  header { padding-top: 48px; margin-bottom: 20px; }
+  header h1 { font-size: 20px; }
+  header p  { font-size: 13px; margin-top: 4px; }
+  /* Hide email, keep only the login/signout button */
+  #auth-user { display: none !important; }
+
+  /* Tab bar: scrollable strip */
+  .tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+    gap: 0;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab-btn { font-size: 13px; padding: 10px 14px 12px; white-space: nowrap; flex-shrink: 0; }
+
+  /* Cards */
+  .card { padding: 14px 12px; }
+
+  /* PR URL input + button: stack */
+  .input-row { flex-direction: column; }
+  .input-row button { width: 100%; }
+
+  /* Eval URL row: stack */
+  .eval-url-row { flex-direction: column; }
+  .eval-url-row .btn-eval { width: 100%; }
+
+  /* Post-comment row: allow wrapping */
+  .post-toggle { flex-wrap: wrap; }
+
+  /* Score */
+  .score-circle { width: 64px; height: 64px; font-size: 20px; }
+  .score-row { gap: 12px; }
+
+  /* Past-reviews head */
+  .past-reviews-head { margin: 24px 0 10px; }
+  .past-reviews-head h2 { font-size: 16px; }
+
+  /* Pipeline: stack agents, hide arrows */
+  .pipeline-flow { flex-direction: column; gap: 8px; }
+  .pipeline-arrow { display: none; }
+  .agent-node { min-width: unset; width: 100%; }
+
+  /* Lineage sidebar flow-key */
+  .flow-key { min-width: unset; width: 100%; }
+  .flow-row { flex-direction: column; gap: 4px; }
+
+  /* Grids */
+  .shadow-config-grid, .compare-grid, .diff-cols, .detail-grid { grid-template-columns: 1fr; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* Modal: slide up from bottom edge */
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .modal {
+    max-height: 90vh;
+    max-width: 100%;
+    width: 100%;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+
+  /* Admin invite form: stack on very narrow screens */
+  #tab-admin .card > div[style*="flex"] { flex-wrap: wrap; }
+
+  /* Table font: smaller on mobile */
+  table.db-table { font-size: 12px; }
+  table.db-table th, table.db-table td { padding: 10px 10px; }
 }

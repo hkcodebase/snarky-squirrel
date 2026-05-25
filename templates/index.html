@@ -150,21 +150,23 @@
   </div>
   <div id="past-reviews-error" class="error-box" style="margin-top:0"></div>
   <div class="card" style="padding:0;overflow:hidden">
-    <table class="db-table" style="font-size:13px">
-      <thead>
-        <tr>
-          <th style="max-width:240px">PR</th>
-          <th>Score</th>
-          <th>Duration</th>
-          <th>Date</th>
-          <th>Verdict</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="past-reviews-tbody">
-        <tr><td colspan="6"><div class="empty-state"><div class="big">⏳</div>Loading…</div></td></tr>
-      </tbody>
-    </table>
+    <div class="db-table-wrap">
+      <table class="db-table" style="font-size:13px">
+        <thead>
+          <tr>
+            <th style="max-width:240px">PR</th>
+            <th>Score</th>
+            <th>Duration</th>
+            <th>Date</th>
+            <th>Verdict</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="past-reviews-tbody">
+          <tr><td colspan="6"><div class="empty-state"><div class="big">⏳</div>Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 
 </div>
@@ -338,18 +340,20 @@
       <button class="btn-ghost" onclick="loadInviteRequests()">↻ Refresh</button>
     </div>
     <div id="admin-requests-error" class="error-box" style="margin:0 20px 12px"></div>
-    <table class="db-table" style="font-size:13px">
-      <thead>
-        <tr>
-          <th>Email</th>
-          <th>Requested</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="admin-requests-tbody">
-        <tr><td colspan="3"><div class="empty-state" style="padding:20px 0">No pending requests.</div></td></tr>
-      </tbody>
-    </table>
+    <div class="db-table-wrap">
+      <table class="db-table" style="font-size:13px">
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Requested</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="admin-requests-tbody">
+          <tr><td colspan="3"><div class="empty-state" style="padding:20px 0">No pending requests.</div></td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <div class="card" style="padding:0;overflow:hidden">
@@ -358,19 +362,21 @@
       <button class="btn-ghost" onclick="loadAdminUsers()">↻ Refresh</button>
     </div>
     <div id="admin-users-error" class="error-box" style="margin:0 20px 12px"></div>
-    <table class="db-table" style="font-size:13px">
-      <thead>
-        <tr>
-          <th>Email</th>
-          <th>Status</th>
-          <th>Created</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="admin-users-tbody">
-        <tr><td colspan="4"><div class="empty-state" style="padding:24px 0">Switch to Admin tab to load users.</div></td></tr>
-      </tbody>
-    </table>
+    <div class="db-table-wrap">
+      <table class="db-table" style="font-size:13px">
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="admin-users-tbody">
+          <tr><td colspan="4"><div class="empty-state" style="padding:24px 0">Switch to Admin tab to load users.</div></td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 
