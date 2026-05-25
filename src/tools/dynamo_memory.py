@@ -54,7 +54,7 @@ class DynamoMemoryStore:
             self._client = boto3.client("dynamodb", **kwargs)
         return self._client
 
-    def put(self, thread_id: str, key: str, value: str) -> None:
+    def put(self, thread_id: str, key: str, value: str, ttl_seconds: int = _TTL_SECONDS) -> None:
         try:
             self.client.put_item(
                 TableName=self.table_name,
@@ -62,7 +62,7 @@ class DynamoMemoryStore:
                     "PK": {"S": thread_id},
                     "SK": {"S": key},
                     "value": {"S": value},
-                    "ttl": {"N": str(int(time.time()) + _TTL_SECONDS)},
+                    "ttl": {"N": str(int(time.time()) + ttl_seconds)},
                 },
             )
         except ClientError as e:

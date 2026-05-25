@@ -192,7 +192,19 @@ _AUTH_PUBLIC = {
     "/lineage", "/lineage/detail",
     "/review/detail",
     "/eval/metrics",
+    "/user/settings",
 }
+
+
+def _current_user_id(request: Request) -> str:
+    """Return 'user:{email}' for authenticated users, 'anonymous' otherwise."""
+    if not _cognito.ENABLED:
+        return "anonymous"
+    token = request.cookies.get(_cognito.COOKIE_NAME)
+    claims = _cognito.validate_token(token) if token else None
+    if not claims:
+        return "anonymous"
+    return f"user:{claims.get('email') or claims.get('sub', 'unknown')}"
 
 
 @app.middleware("http")
@@ -270,6 +282,22 @@ def auth_me(request: Request):
     }
 
 
+@app.get("/user/settings", include_in_schema=False)
+def user_settings(request: Request):
+    """Return persisted user settings (last_pr_url, etc.)."""
+    user_id = _current_user_id(request)
+    if user_id == "anonymous":
+        return {"last_pr_url": None}
+    store = DynamoMemoryStore()
+    raw = store.get(user_id, "user_settings")
+    if not raw:
+        return {"last_pr_url": None}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {"last_pr_url": None}
+
+
 # ─────────────────────────── models ──────────────────────────────────────────
 
 
@@ -326,7 +354,7 @@ def health():
 
 
 @app.post("/review")
-async def review_pr(req: ReviewRequest):
+async def review_pr(req: ReviewRequest, request: Request):
     """Directly review a GitHub PR — no webhook payload required."""
     github_token = req.github_token.strip() or os.environ.get("GITHUB_TOKEN", "")
     if not github_token:
@@ -348,6 +376,16 @@ async def review_pr(req: ReviewRequest):
     if req.post_comment:
         post_pr_comment(repo, pr_number, result["summary_report"], github_token)
         logger.info(f"Comment posted to PR #{pr_number}")
+
+    # Persist the PR URL so the user can restore it across devices / browsers.
+    try:
+        user_id = _current_user_id(request)
+        store = DynamoMemoryStore()
+        store.put(user_id, "user_settings",
+                  json.dumps({"last_pr_url": req.pr_url}),
+                  ttl_seconds=30 * 24 * 3600)
+    except Exception as exc:
+        logger.warning(f"Could not save user settings: {exc}")
 
     return {
         "score": result["overall_score"],

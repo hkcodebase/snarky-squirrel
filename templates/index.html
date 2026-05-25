@@ -1253,8 +1253,22 @@ async function submitFeedback(threadId, thumbs) {
 (function restoreInputs() {
   const token = localStorage.getItem('gh-token');
   if (token) document.getElementById('github-token').value = token;
-  const url = localStorage.getItem('pr-url');
-  if (url) document.getElementById('pr-url').value = url;
+  // Restore PR URL: DynamoDB (cross-device) takes priority over localStorage.
+  fetch('/user/settings')
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      const dbUrl = data && data.last_pr_url;
+      const localUrl = localStorage.getItem('pr-url');
+      const url = dbUrl || localUrl;
+      if (url) {
+        document.getElementById('pr-url').value = url;
+        localStorage.setItem('pr-url', url);
+      }
+    })
+    .catch(() => {
+      const url = localStorage.getItem('pr-url');
+      if (url) document.getElementById('pr-url').value = url;
+    });
 })();
 loadPastReviews();
 </script>
