@@ -276,6 +276,7 @@ def auth_me(request: Request):
 class ReviewRequest(BaseModel):
     pr_url: str
     post_comment: bool = False  # set True to also post the review comment to GitHub
+    github_token: str = ""     # user-supplied PAT; falls back to server GITHUB_TOKEN env var
 
 
 class EvalRunRequest(BaseModel):
@@ -327,9 +328,9 @@ def health():
 @app.post("/review")
 async def review_pr(req: ReviewRequest):
     """Directly review a GitHub PR — no webhook payload required."""
-    github_token = os.environ.get("GITHUB_TOKEN", "")
+    github_token = req.github_token.strip() or os.environ.get("GITHUB_TOKEN", "")
     if not github_token:
-        raise HTTPException(status_code=400, detail="GITHUB_TOKEN not set in .env")
+        raise HTTPException(status_code=400, detail="No GitHub token available. Paste your token in the UI or set GITHUB_TOKEN on the server.")
 
     repo, pr_number = parse_pr_url(req.pr_url)
     logger.info(f"Fetching PR #{pr_number} from {repo}")

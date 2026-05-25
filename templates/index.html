@@ -75,6 +75,22 @@
              autocomplete="off" />
       <button id="review-btn" onclick="startReview()">Review PR</button>
     </div>
+    <div style="margin-top:14px;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <input id="github-token" type="password" autocomplete="off" spellcheck="false"
+               placeholder="GitHub personal access token (ghp_…)"
+               style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:inherit;font-size:14px;padding:10px 14px;outline:none;transition:border-color 0.15s"
+               oninput="localStorage.setItem('gh-token', this.value)"
+               onfocus="this.style.borderColor='var(--accent)'"
+               onblur="this.style.borderColor='var(--border)'" />
+        <button type="button" class="btn-ghost btn-sm" style="flex-shrink:0"
+                onclick="var i=document.getElementById('github-token');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'Show':'Hide'">Show</button>
+      </div>
+      <p style="font-size:12px;color:var(--muted)">
+        Your token is used only for this request and never stored server-side.
+        <a href="https://github.com/settings/tokens/new?scopes=repo&description=Snarky+Squirrel" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none">Generate a token ↗</a>
+      </p>
+    </div>
     <div class="post-toggle">
       <input type="checkbox" id="post-comment" />
       <label for="post-comment">Also post review comment to GitHub</label>
@@ -596,7 +612,7 @@ async function startReview() {
     const resp = await fetch("/review", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pr_url: prUrl, post_comment: document.getElementById("post-comment").checked }),
+      body: JSON.stringify({ pr_url: prUrl, post_comment: document.getElementById("post-comment").checked, github_token: document.getElementById("github-token").value.trim() }),
     });
     if (resp.status === 401) {
       showReviewError("Login required to submit a review. Click Login in the top-right corner.");
@@ -1223,6 +1239,10 @@ async function submitFeedback(threadId, thumbs) {
 }
 
 // ── Init ──
+(function restoreToken() {
+  const saved = localStorage.getItem('gh-token');
+  if (saved) document.getElementById('github-token').value = saved;
+})();
 loadPastReviews();
 </script>
 
