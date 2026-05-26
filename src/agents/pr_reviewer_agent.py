@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.tools.dynamo_memory import DynamoMemoryStore
+from src.safety.input_guard import build_secure_human_message
+from src.safety.output_validator import strip_markdown_and_parse, validate_findings
 
 SYSTEM_PROMPT = """You are a principal engineer performing a high-level pull request review.
 You focus on the *why* and *what*, not just the *how*.
@@ -76,28 +78,22 @@ class PRReviewerAgent:
         messages = [
             SystemMessage(content=SYSTEM_PROMPT),
             HumanMessage(
-                content=(
-                    f"PR title: {pr_meta.get('title', '')}\n"
-                    f"PR description: {pr_meta.get('body', 'No description provided')}\n"
-                    f"Author: {pr_meta.get('author', 'unknown')}\n"
-                    f"Base branch: {pr_meta.get('base', 'main')}\n"
-                    f"Files changed: {', '.join(state.get('file_list', []))}\n\n"
-                    f"Earlier agent findings (for context):\n{prior_context}\n\n"
-                    f"Diff:\n```\n{diff[:10000]}\n```"
+                content=build_secure_human_message(
+                    pr_meta,
+                    diff[:10000],
+                    extra_fields={
+                        "files_changed":         ", ".join(state.get("file_list", [])),
+                        "prior_agent_findings":  prior_context,
+                    },
                 )
             ),
         ]
         response = self.llm.invoke(messages)
 
-        findings: list[dict] = []
-        try:
-            raw = response.content.strip()
-            if raw.startswith("```"):
-                raw = re.sub(r"^```[a-z]*\n?", "", raw)
-                raw = re.sub(r"\n?```$", "", raw)
-            findings = json.loads(raw)
-        except (json.JSONDecodeError, AttributeError):
-            findings = []
+        findings = validate_findings(
+            strip_markdown_and_parse(response.content),
+            agent_name="pr_reviewer",
+        )
 
         self.memory.put(thread_id, "pr_review_findings", json.dumps(findings))
 

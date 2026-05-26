@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.tools.dynamo_memory import DynamoMemoryStore
+from src.safety.input_guard import build_secure_human_message
+from src.safety.output_validator import strip_markdown_and_parse, validate_findings
 
 SYSTEM_PROMPT = """You are a senior software engineer performing a thorough code quality review.
 Analyse the unified diff provided.
@@ -80,25 +82,21 @@ class CodeQualityAgent:
         messages = [
             SystemMessage(content=SYSTEM_PROMPT + security_context),
             HumanMessage(
-                content=(
-                    f"PR: {pr_meta.get('title', '')}\n"
-                    f"Author: {pr_meta.get('author', 'unknown')}\n"
-                    f"Files changed: {', '.join(state.get('file_list', []))}\n\n"
-                    f"Diff:\n```\n{diff[:12000]}\n```"
+                content=build_secure_human_message(
+                    pr_meta,
+                    diff[:12000],
+                    extra_fields={
+                        "files_changed": ", ".join(state.get("file_list", [])),
+                    },
                 )
             ),
         ]
         response = self.llm.invoke(messages)
 
-        findings: list[dict] = []
-        try:
-            raw = response.content.strip()
-            if raw.startswith("```"):
-                raw = re.sub(r"^```[a-z]*\n?", "", raw)
-                raw = re.sub(r"\n?```$", "", raw)
-            findings = json.loads(raw)
-        except (json.JSONDecodeError, AttributeError):
-            findings = []
+        findings = validate_findings(
+            strip_markdown_and_parse(response.content),
+            agent_name="code_quality",
+        )
 
         # Fetch positive highlights in a second LLM call
         pos_messages = [
@@ -106,15 +104,10 @@ class CodeQualityAgent:
             HumanMessage(content=f"Diff:\n```\n{diff[:8000]}\n```"),
         ]
         pos_response = self.llm.invoke(pos_messages)
-        positives: list[dict] = []
-        try:
-            raw = pos_response.content.strip()
-            if raw.startswith("```"):
-                raw = re.sub(r"^```[a-z]*\n?", "", raw)
-                raw = re.sub(r"\n?```$", "", raw)
-            positives = json.loads(raw)
-        except Exception:
-            positives = []
+        positives: list[dict] = [
+            p for p in strip_markdown_and_parse(pos_response.content)
+            if isinstance(p, dict) and p.get("title")
+        ]
 
         # Attach positives as INFO-level findings
         for p in positives:

@@ -428,6 +428,11 @@
         <div id="rd-breakdown"></div>
         <hr class="divider" />
         <div id="rd-report" style="font-size:15px;line-height:1.7"></div>
+        <div id="rd-findings-section" style="display:none;margin-top:24px">
+          <hr class="divider" />
+          <h4 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:12px">Rate individual findings</h4>
+          <div id="rd-findings-list"></div>
+        </div>
       </div>
       <div id="rd-error" class="error-box"></div>
     </div>
@@ -1329,6 +1334,18 @@ async function openReviewDetail(tid) {
         ? parseMarkdown(d.summary_report)
         : '<p style="color:var(--muted);font-style:italic">No report stored for this review.</p>';
 
+    // per-finding feedback cards
+    const findingsSection = document.getElementById("rd-findings-section");
+    const findingsList    = document.getElementById("rd-findings-list");
+    const hasFindingData  = d.findings && Object.values(d.findings).some(a => a && a.length > 0);
+    if (hasFindingData) {
+      findingsSection.style.display = "block";
+      findingsList.innerHTML = '<div style="color:var(--muted);font-size:12px">Loading findings…</div>';
+      renderFindingCards(d.findings, tid, findingsList);
+    } else {
+      findingsSection.style.display = "none";
+    }
+
     document.getElementById("rd-loading").style.display = "none";
     document.getElementById("rd-content").style.display = "block";
   } catch (err) {
@@ -1337,6 +1354,87 @@ async function openReviewDetail(tid) {
     errEl.textContent = "Failed to load review: " + err.message;
     errEl.style.display = "block";
   }
+}
+
+// ════════════════════════════════════════════════
+// PER-FINDING FEEDBACK
+// ════════════════════════════════════════════════
+
+async function findingHash(title, file) {
+  // SHA-256(title+"|"+file), first 8 hex chars — matches server-side contract.
+  const enc = new TextEncoder();
+  const buf = await crypto.subtle.digest("SHA-256", enc.encode(title + "|" + file));
+  return Array.from(new Uint8Array(buf))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 8);
+}
+
+async function submitFindingFeedback(threadId, hash, thumbs, btn) {
+  try {
+    const resp = await fetch("/eval/finding-feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ thread_id: threadId, finding_hash: hash, thumbs }),
+    });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    // Update button state
+    const row = btn.closest(".finding-fb-row");
+    row.querySelectorAll(".fb-btn").forEach(b => b.classList.remove("fb-selected"));
+    btn.classList.add("fb-selected");
+    const sent = row.querySelector(".fb-sent");
+    if (sent) { sent.style.display = "inline"; }
+  } catch (err) {
+    console.warn("Finding feedback failed:", err);
+  }
+}
+
+const SEV_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"];
+const SEV_COLORS = { CRITICAL: "#e53935", HIGH: "#e65100", MEDIUM: "#f9a825", LOW: "#1e88e5", INFO: "#43a047" };
+
+async function renderFindingCards(findings, threadId, container) {
+  if (!findings || !container) return;
+  // Flatten all agent findings, sort by severity
+  const all = [];
+  for (const [agent, list] of Object.entries(findings)) {
+    (list || []).filter(f => f.category !== "positive").forEach(f => all.push({ ...f, _agent: agent }));
+  }
+  if (!all.length) return;
+
+  all.sort((a, b) => SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity));
+
+  const cards = await Promise.all(all.map(async f => {
+    const hash = await findingHash(f.title || "", f.file || "");
+    const col = SEV_COLORS[f.severity] || "#888";
+    const loc = f.file && f.file !== "unknown"
+      ? `<span style="font-family:monospace;font-size:12px;color:var(--muted)">${escHtml(f.file)}${f.line ? ":" + f.line : ""}</span>`
+      : "";
+    return `<div class="finding-card" style="border-left:3px solid ${col};padding:10px 12px;margin-bottom:8px;background:var(--surface);border-radius:3px">
+      <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap">
+        <span style="font-size:11px;font-weight:700;color:${col};flex-shrink:0">${escHtml(f.severity)}</span>
+        <span style="font-size:13px;font-weight:600;flex:1;min-width:0">${escHtml(f.title || "[untitled]")}</span>
+        ${loc}
+      </div>
+      ${f.detail ? `<div style="font-size:13px;color:var(--muted);margin-top:4px;line-height:1.5">${escHtml(f.detail)}</div>` : ""}
+      <div class="finding-fb-row" style="display:flex;align-items:center;gap:8px;margin-top:8px">
+        <span style="font-size:11px;color:var(--muted)">Useful?</span>
+        <button class="fb-btn" data-hash="${hash}" data-thread="${escHtml(threadId)}" data-thumbs="up"
+          title="Useful finding" style="background:none;border:1px solid var(--border);border-radius:3px;padding:2px 7px;cursor:pointer;font-size:13px">👍</button>
+        <button class="fb-btn" data-hash="${hash}" data-thread="${escHtml(threadId)}" data-thumbs="down"
+          title="Not relevant" style="background:none;border:1px solid var(--border);border-radius:3px;padding:2px 7px;cursor:pointer;font-size:13px">👎</button>
+        <span class="fb-sent" style="display:none;font-size:11px;color:var(--muted)">✓ saved</span>
+      </div>
+    </div>`;
+  }));
+
+  container.innerHTML = cards.join("");
+
+  // Wire up click handlers
+  container.querySelectorAll(".fb-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      submitFindingFeedback(btn.dataset.thread, btn.dataset.hash, btn.dataset.thumbs, btn);
+    });
+  });
 }
 
 // ════════════════════════════════════════════════

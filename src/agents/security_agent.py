@@ -17,6 +17,12 @@ from datetime import datetime, timezone
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.tools.dynamo_memory import DynamoMemoryStore
+from src.safety.input_guard import build_secure_human_message
+from src.safety.output_validator import (
+    normalize_severity,
+    strip_markdown_and_parse,
+    validate_findings,
+)
 
 SYSTEM_PROMPT = """You are a senior application security engineer performing a PR security review.
 Analyse the provided unified diff carefully.
@@ -46,11 +52,17 @@ Do NOT include any text outside the JSON array.
 """
 
 # Regex pre-scan: fast pattern matching before sending to LLM (reduces cost + latency)
+#
+# Pattern design principles:
+#   - Require a quoted string literal on the RHS so that env-var reads like
+#     os.environ.get("API_KEY") are NOT flagged (the value is not a literal).
+#   - DB connection strings are a special case — the credentials appear in the
+#     URL itself, not in an assignment, so no quote requirement needed.
 SECRET_PATTERNS: list[tuple[str, str]] = [
-    # API / access keys
-    (r"(?i)(api[_-]?key|apikey)\s*[:=]\s*['\"]?([A-Za-z0-9_\-]{20,})", "API key"),
-    (r"(?i)aws_access_key_id\s*[:=]\s*['\"]?([A-Z0-9]{20})", "AWS access key"),
-    (r"(?i)aws_secret_access_key\s*[:=]\s*['\"]?([A-Za-z0-9+/]{40})", "AWS secret key"),
+    # API / access keys — require a quoted literal value (rejects os.environ.get())
+    (r"(?i)(api[_-]?key|apikey)\s*=\s*['\"][A-Za-z0-9_\-]{20,}['\"]", "API key"),
+    (r"(?i)aws_access_key_id\s*=\s*['\"]([A-Z0-9]{20})['\"]", "AWS access key"),
+    (r"(?i)aws_secret_access_key\s*=\s*['\"]([A-Za-z0-9+/]{40})['\"]", "AWS secret key"),
     # Passwords — matches DB_PASSWORD, db_pass, PASSWORD, passwd, pwd etc.
     (
         r"(?i)(password|passwd|pwd)\s*[:=]\s*['\"]([^'\"]{6,})['\"]",
@@ -73,12 +85,24 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
     (r"(?i)(sk_live_|pk_live_)[A-Za-z0-9]{20,}", "Stripe live key"),
 ]
 
+# Prefixes that indicate a line is a comment — skip these in the prescan.
+_COMMENT_PREFIXES = ("#", "//", "--", "/*", "*")
+
 
 def regex_prescan(diff: str) -> list[dict]:
-    """Fast regex prescan to flag obvious secrets before LLM analysis."""
+    """Fast regex prescan to flag obvious secrets before LLM analysis.
+
+    Only inspects added lines (starting with '+').
+    Skips comment lines (Python/JS/SQL/C-style) to reduce false positives on
+    documentation examples and commented-out code.
+    """
     findings = []
     for line_num, line in enumerate(diff.splitlines(), start=1):
         if not line.startswith("+"):  # only added lines
+            continue
+        # Skip comment lines — strip the leading '+' before checking.
+        stripped = line[1:].lstrip()
+        if stripped.startswith(_COMMENT_PREFIXES):
             continue
         for pattern, label in SECRET_PATTERNS:
             if re.search(pattern, line):
@@ -118,25 +142,20 @@ class SecurityAgent:
         # Step 2: LLM deep analysis
         messages = [
             SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(
-                content=f"PR: {pr_meta.get('title', '')}\n\nDiff:\n```\n{diff[:12000]}\n```"
-            ),
+            HumanMessage(content=build_secure_human_message(pr_meta, diff[:12000])),
         ]
         response = self.llm.invoke(messages)
 
-        llm_findings: list[dict] = []
-        try:
-            raw = response.content.strip()
-            # Strip markdown fences if present
-            if raw.startswith("```"):
-                raw = re.sub(r"^```[a-z]*\n?", "", raw)
-                raw = re.sub(r"\n?```$", "", raw)
-            llm_findings = json.loads(raw)
-        except (json.JSONDecodeError, AttributeError):
-            llm_findings = []
+        llm_findings = validate_findings(
+            strip_markdown_and_parse(response.content),
+            agent_name="security",
+        )
 
         all_findings = regex_findings + llm_findings
-        has_critical = any(f.get("severity") == "CRITICAL" for f in all_findings)
+        has_critical = any(
+            normalize_severity(f.get("severity", "")) == "CRITICAL"
+            for f in all_findings
+        )
 
         # Write findings to shared memory so other agents can reference
         self.memory.put(

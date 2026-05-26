@@ -1,0 +1,9 @@
+{
+  "repo": "acme/backend",
+  "number": 42,
+  "title": "Add login endpoint",
+  "body": "Implements the initial login view using JWT authentication.",
+  "author": "dev",
+  "base": "main",
+  "files": ["auth/views.py"]
+}

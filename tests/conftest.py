@@ -49,9 +49,18 @@ def dynamo_table(aws_credentials):
                 {"AttributeName": "SK", "KeyType": "RANGE"},
             ],
             AttributeDefinitions=[
-                {"AttributeName": "PK", "AttributeType": "S"},
-                {"AttributeName": "SK", "AttributeType": "S"},
+                {"AttributeName": "PK",         "AttributeType": "S"},
+                {"AttributeName": "SK",         "AttributeType": "S"},
+                {"AttributeName": "created_at", "AttributeType": "S"},
             ],
+            GlobalSecondaryIndexes=[{
+                "IndexName": "SK-index",
+                "KeySchema": [
+                    {"AttributeName": "SK",         "KeyType": "HASH"},
+                    {"AttributeName": "created_at", "KeyType": "RANGE"},
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+            }],
             BillingMode="PAY_PER_REQUEST",
         )
         yield client

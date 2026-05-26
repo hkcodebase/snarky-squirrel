@@ -16,6 +16,11 @@ from datetime import datetime, timezone
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.tools.dynamo_memory import DynamoMemoryStore
+from src.safety.output_validator import (
+    normalize_severity,
+    strip_markdown_and_parse,
+    validate_findings,
+)
 
 DEDUP_PROMPT = """You are reviewing three sets of findings from separate code review agents.
 Remove genuine duplicates (same file, same issue, similar recommendation).
@@ -173,19 +178,18 @@ class SummaryAgent:
                 HumanMessage(content=json.dumps(all_raw, indent=2)[:12000]),
             ]
             response = self.llm.invoke(messages)
-            try:
-                raw = response.content.strip()
-                if raw.startswith("```"):
-                    raw = re.sub(r"^```[a-z]*\n?", "", raw)
-                    raw = re.sub(r"\n?```$", "", raw)
-                all_findings = json.loads(raw)
-            except Exception:
-                all_findings = all_raw
+            deduped = validate_findings(
+                strip_markdown_and_parse(response.content),
+                agent_name="summary_dedup",
+                cap=200,  # higher cap — this is a merged list from all agents
+            )
+            all_findings = deduped if deduped else all_raw
         else:
             all_findings = []
 
         should_block = state.get("should_block", False) or any(
-            f.get("severity") == "CRITICAL" for f in all_findings
+            normalize_severity(f.get("severity", "")) == "CRITICAL"
+            for f in all_findings
         )
         breakdown = compute_score_breakdown(all_findings)
         score = breakdown["final_score"]

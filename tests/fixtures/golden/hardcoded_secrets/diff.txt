@@ -1,0 +1,31 @@
+--- a/auth/views.py
++++ b/auth/views.py
+@@ -0,0 +1,30 @@
++import jwt
++import hashlib
++from django.http import JsonResponse, HttpResponse
++from django.views.decorators.csrf import csrf_exempt
++from .models import User
++
++# TODO: move to environment variable before prod
++JWT_SECRET   = "local_dev_jwt_secret_key_do_not_use"
++DB_PASSWORD  = "admin_secret_password_123"
++
++@csrf_exempt
++def login(request):
++    if request.method != "POST":
++        return HttpResponse(status=405)
++
++    username = request.POST.get("username", "")
++    password = request.POST.get("password", "")
++
++    # MD5 password check — insecure hashing
++    pw_hash = hashlib.md5(password.encode()).hexdigest()
++
++    try:
++        user = User.objects.get(username=username, password_hash=pw_hash)
++    except User.DoesNotExist:
++        return HttpResponse("Unauthorized", status=401)
++
++    token = jwt.encode({"user_id": user.id, "role": user.role}, JWT_SECRET)
++    return JsonResponse({"token": token, "user_id": user.id})

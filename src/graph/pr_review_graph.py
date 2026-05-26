@@ -60,9 +60,13 @@ class PRReviewState(TypedDict):
 # ─────────────────────────── LLM factory ─────────────────────────────────────
 
 
-def get_llm():
+def get_llm(provider: str | None = None, model: str | None = None):
     """
-    Return an LLM instance based on LLM_PROVIDER env var.
+    Return an LLM instance for the given provider/model.
+
+    When called with no arguments, reads LLM_PROVIDER and LLM_MODEL from env.
+    Explicit arguments override env vars — this is the safe way to build a
+    shadow LLM without mutating os.environ (which is not thread-safe).
 
     Supported providers:
       ollama        — Ollama running locally (default). Set OLLAMA_BASE_URL.
@@ -71,8 +75,8 @@ def get_llm():
       bedrock       — AWS Bedrock (production). Requires langchain-aws installed
                       and real AWS credentials with Bedrock access.
     """
-    provider = os.environ.get("LLM_PROVIDER", "ollama")
-    model = os.environ.get("LLM_MODEL", "gemma4:4b")
+    provider = provider or os.environ.get("LLM_PROVIDER", "ollama")
+    model    = model    or os.environ.get("LLM_MODEL",    "gemma4:4b")
 
     if provider == "bedrock":
         from langchain_aws import ChatBedrock  # noqa: PLC0415
@@ -171,9 +175,15 @@ def route_after_supervisor(state: PRReviewState) -> str:
 # ─────────────────────────── build the graph ─────────────────────────────────
 
 
-def build_pr_review_graph(use_dynamo_checkpointer: bool = True):
-    """Build and compile the LangGraph StateGraph."""
+def build_pr_review_graph(use_dynamo_checkpointer: bool = True, llm=None):
+    """Build and compile the LangGraph StateGraph.
 
+    Args:
+        use_dynamo_checkpointer: Use DynamoDB checkpointer if table env var is set.
+        llm: Optional pre-built LLM instance. If None, get_llm() is called to
+             create one from env vars. Pass an explicit instance to avoid
+             env-var mutation (e.g. when running a shadow evaluation).
+    """
     # Checkpointer: DynamoDB for production, in-memory for local dev
     if use_dynamo_checkpointer and os.environ.get("DYNAMODB_TABLE"):
         from src.tools.dynamo_memory import DynamoCheckpointer
@@ -185,7 +195,8 @@ def build_pr_review_graph(use_dynamo_checkpointer: bool = True):
     else:
         checkpointer = MemorySaver()
 
-    llm = get_llm()
+    if llm is None:
+        llm = get_llm()
     memory_store = DynamoMemoryStore()
 
     # Instantiate agents (each is a callable node)
@@ -226,8 +237,22 @@ def build_pr_review_graph(use_dynamo_checkpointer: bool = True):
 # ─────────────────────────── entrypoint ──────────────────────────────────────
 
 
-def run_pr_review(pr_metadata: dict, diff_content: str, file_list: list[str]) -> dict:
-    """Run the full PR review graph and return the final state."""
+def run_pr_review(
+    pr_metadata: dict,
+    diff_content: str,
+    file_list: list[str],
+    llm=None,
+) -> dict:
+    """Run the full PR review graph and return the final state.
+
+    Args:
+        pr_metadata: PR metadata dict (repo, number, sha, title, body, author, base).
+        diff_content: Raw unified diff string.
+        file_list:    List of changed file paths.
+        llm:          Optional pre-built LLM instance. Pass an explicit instance
+                      (e.g. from get_llm(provider, model)) to avoid env-var
+                      mutation in shadow/eval contexts.
+    """
     started_at = datetime.now(tz=timezone.utc).isoformat()
     t0 = time.monotonic()
 
@@ -239,7 +264,7 @@ def run_pr_review(pr_metadata: dict, diff_content: str, file_list: list[str]) ->
     # Inject into metadata so every agent can read it from state
     pr_metadata = {**pr_metadata, "thread_id": thread_id}
 
-    app = build_pr_review_graph()
+    app = build_pr_review_graph(llm=llm)
 
     initial_state: PRReviewState = {
         "messages": [

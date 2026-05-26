@@ -20,10 +20,12 @@ Then trigger a review:
 from __future__ import annotations
 
 import base64
+import collections
 import json
 import logging
 import os
 import sys
+import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -48,7 +50,8 @@ from src.github.client import (
     post_pr_comment,
     validate_webhook_signature,
 )
-from src.graph.pr_review_graph import run_pr_review
+from src.graph.pr_review_graph import get_llm, run_pr_review
+from src.safety.input_guard import DiffTooShortError, validate_diff
 from src.tools.dynamo_memory import DynamoMemoryStore
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
@@ -182,6 +185,38 @@ async def lifespan(app: FastAPI):
 # ─────────────────────────── app ─────────────────────────────────────────────
 
 
+# ─────────────────────────── rate limiting ───────────────────────────────────
+# In-memory sliding-window rate limiter.  No external dependency required.
+# State resets on process restart — acceptable for the single-EC2 deployment.
+
+_rate_limit_lock = threading.Lock()
+_rate_limit_windows: dict[str, collections.deque] = {}
+
+
+def _check_rate_limit(key: str, max_calls: int, window_seconds: int) -> None:
+    """Raise HTTP 429 if `key` has exceeded `max_calls` in the last `window_seconds`.
+
+    Thread-safe.  `key` is typically the user_id (e.g. "user:alice@example.com")
+    or "anonymous" for unauthenticated requests.
+    """
+    now = time.monotonic()
+    with _rate_limit_lock:
+        dq = _rate_limit_windows.setdefault(key, collections.deque())
+        # Evict timestamps that have fallen outside the window.
+        while dq and dq[0] < now - window_seconds:
+            dq.popleft()
+        if len(dq) >= max_calls:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded: max {max_calls} requests per {window_seconds}s. "
+                       f"Please wait before submitting another review.",
+                headers={"Retry-After": str(window_seconds)},
+            )
+        dq.append(now)
+
+
+# ─────────────────────────── app ─────────────────────────────────────────────
+
 app = FastAPI(
     title="PR Review System — Local Dev",
     description="Multi-agent PR reviewer backed by local Ollama/Gemma and DynamoDB Local.",
@@ -204,6 +239,7 @@ _AUTH_PUBLIC = {
     "/eval/metrics",
     "/user/settings",
     "/invite/request",
+    "/eval/finding-feedback",
 }
 
 
@@ -507,6 +543,14 @@ class FeedbackRequest(BaseModel):
     notes: str = ""
 
 
+class FindingFeedbackRequest(BaseModel):
+    thread_id: str
+    finding_hash: str  # 8-char hex SHA-256(title+"|"+file) — computed by client
+    thumbs: str        # "up" | "down"
+    agent: str = ""    # "security" | "code_quality" | "pr_reviewer" — optional label
+    notes: str = ""
+
+
 # ─────────────────────────── endpoints ───────────────────────────────────────
 
 
@@ -542,6 +586,9 @@ def health():
 @app.post("/review")
 async def review_pr(req: ReviewRequest, request: Request):
     """Directly review a GitHub PR — no webhook payload required."""
+    # Rate limit: 5 reviews per user per 60 seconds.
+    _check_rate_limit(_current_user_id(request), max_calls=5, window_seconds=60)
+
     github_token = req.github_token.strip() or os.environ.get("GITHUB_TOKEN", "")
     if not github_token:
         raise HTTPException(status_code=400, detail="No GitHub token available. Paste your token in the UI or set GITHUB_TOKEN on the server.")
@@ -555,6 +602,11 @@ async def review_pr(req: ReviewRequest, request: Request):
 
     if len(diff_content) > 50_000:
         diff_content = diff_content[:50_000] + "\n\n... [diff truncated at 50 000 chars]"
+
+    try:
+        validate_diff(diff_content)
+    except DiffTooShortError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
     logger.info("Running multi-agent review...")
     result = run_pr_review(pr_meta, diff_content, file_list)
@@ -618,6 +670,11 @@ async def github_webhook(request: Request):
     if len(diff_content) > 50_000:
         diff_content = diff_content[:50_000] + "\n\n... [diff truncated at 50 000 chars]"
 
+    try:
+        validate_diff(diff_content)
+    except DiffTooShortError as exc:
+        return {"message": f"Skipped — {exc}"}
+
     result = run_pr_review(pr_meta, diff_content, file_list)
 
     if github_token:
@@ -653,28 +710,52 @@ def _format_eval_result(result: dict, duration_ms: int) -> dict:
 
 
 def _compare_findings(primary: dict, shadow: dict) -> dict:
-    def _titles(r: dict) -> set[str]:
-        findings = (
-            r.get("security_findings", [])
-            + r.get("code_quality_findings", [])
-            + r.get("pr_review_findings", [])
-        )
-        return {f.get("title", "").lower().strip()
-                for f in findings if f.get("category") != "positive"}
+    def _titles(r: dict, key: str) -> set[str]:
+        return {
+            f.get("title", "").lower().strip()
+            for f in r.get(key, [])
+            if f.get("category") != "positive"
+        }
 
-    pt, st = _titles(primary), _titles(shadow)
+    def _all_titles(r: dict) -> set[str]:
+        result: set[str] = set()
+        for k in ("security_findings", "code_quality_findings", "pr_review_findings"):
+            result |= _titles(r, k)
+        return result
+
+    pt, st = _all_titles(primary), _all_titles(shadow)
     union = pt | st
-    both = pt & st
+    both  = pt & st
+    overlap_pct = round(len(both) / max(len(union), 1) * 100, 1)
+
+    # Per-agent breakdown — which agent drove the divergence?
+    per_agent: dict[str, dict] = {}
+    for agent_name, key in [
+        ("security",     "security_findings"),
+        ("code_quality", "code_quality_findings"),
+        ("pr_reviewer",  "pr_review_findings"),
+    ]:
+        apt, ast = _titles(primary, key), _titles(shadow, key)
+        aunion = apt | ast
+        aboth  = apt & ast
+        per_agent[agent_name] = {
+            "overlap_pct":        round(len(aboth) / max(len(aunion), 1) * 100, 1),
+            "primary_only_count": len(apt - ast),
+            "shadow_only_count":  len(ast - apt),
+        }
+
     return {
         "score_delta": round(
             (shadow.get("overall_score") or 0) - (primary.get("overall_score") or 0), 1
         ),
         "duration_delta_ms": (shadow.get("_duration_ms") or 0) - (primary.get("_duration_ms") or 0),
         "block_agreement": primary.get("should_block") == shadow.get("should_block"),
-        "overlap_pct": round(len(both) / max(len(union), 1) * 100, 1),
-        "in_both": sorted(both),
+        "overlap_pct":  overlap_pct,
+        "low_agreement": overlap_pct < 50,
+        "in_both":      sorted(both),
         "primary_only": sorted(pt - st),
-        "shadow_only": sorted(st - pt),
+        "shadow_only":  sorted(st - pt),
+        "per_agent":    per_agent,
     }
 
 
@@ -682,8 +763,11 @@ def _compare_findings(primary: dict, shadow: dict) -> dict:
 
 
 @app.post("/eval/run")
-async def eval_run(req: EvalRunRequest):
+async def eval_run(req: EvalRunRequest, request: Request):
     """Run offline or shadow evaluation against a GitHub PR."""
+    # Rate limit: 3 eval runs per user per 120 seconds (shadow mode = 2× LLM cost).
+    _check_rate_limit(_current_user_id(request), max_calls=3, window_seconds=120)
+
     github_token = os.environ.get("GITHUB_TOKEN", "")
     if not github_token:
         raise HTTPException(status_code=400, detail="GITHUB_TOKEN not set in .env")
@@ -708,28 +792,22 @@ async def eval_run(req: EvalRunRequest):
         primary = run_pr_review(pr_meta, diff_content, file_list)
         primary_ms = int((time.monotonic() - t0) * 1000)
 
-        # ── shadow run — temporarily override env vars ───────────────────────
-        # NOTE: env-var swap is not thread-safe; safe for single-user local dev.
+        # ── shadow run — build a dedicated LLM from explicit params ──────────
+        # We instantiate get_llm(provider, model) directly instead of swapping
+        # os.environ, which is not thread-safe when concurrent shadow requests
+        # arrive simultaneously.
         s_provider = req.shadow_provider or os.environ.get("LLM_PROVIDER", "ollama")
-        s_model = req.shadow_model or os.environ.get("LLM_MODEL", "gemma4:4b")
-        saved = {k: os.environ.get(k) for k in ("LLM_PROVIDER", "LLM_MODEL")}
-        os.environ["LLM_PROVIDER"] = s_provider
-        os.environ["LLM_MODEL"] = s_model
+        s_model    = req.shadow_model    or os.environ.get("LLM_MODEL",    "gemma4:4b")
         shadow_error: str | None = None
         shadow_ms = 0
         try:
+            shadow_llm = get_llm(provider=s_provider, model=s_model)
             t1 = time.monotonic()
-            shadow = run_pr_review(dict(pr_meta), diff_content, file_list)
+            shadow = run_pr_review(dict(pr_meta), diff_content, file_list, llm=shadow_llm)
             shadow_ms = int((time.monotonic() - t1) * 1000)
         except Exception as exc:
             shadow = {}
             shadow_error = str(exc)
-        finally:
-            for k, v in saved.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
 
         pf = _format_eval_result(primary, primary_ms)
         sf = _format_eval_result(shadow, shadow_ms) if not shadow_error else {"error": shadow_error}
@@ -760,6 +838,35 @@ def eval_feedback(req: FeedbackRequest):
         "notes": req.notes,
         "submitted_at": datetime.now(tz=timezone.utc).isoformat(),
     }))
+    return {"ok": True}
+
+
+@app.post("/eval/finding-feedback")
+def eval_finding_feedback(req: FindingFeedbackRequest):
+    """Store per-finding human feedback (thumbs up/down) keyed by a stable finding hash.
+
+    The finding_hash is computed client-side as:
+        SHA-256(title + "|" + file).hexdigest()[:8]
+
+    This is stable across re-reviews of the same issue and survives finding
+    list reordering between runs.
+    """
+    import re as _re
+    if not _re.match(r'^[0-9a-f]{8}$', req.finding_hash):
+        raise HTTPException(status_code=400, detail="finding_hash must be 8 lowercase hex chars")
+    store = DynamoMemoryStore()
+    store.put(
+        req.thread_id,
+        f"finding_feedback_{req.finding_hash}",
+        json.dumps({
+            "thread_id":     req.thread_id,
+            "finding_hash":  req.finding_hash,
+            "thumbs":        req.thumbs,
+            "agent":         req.agent,
+            "notes":         req.notes,
+            "submitted_at":  datetime.now(tz=timezone.utc).isoformat(),
+        }),
+    )
     return {"ok": True}
 
 
@@ -825,8 +932,10 @@ def eval_metrics():
 
 
 @app.get("/db/records")
-def list_db_records():
-    """Scan and return all records from the DynamoDB memory table."""
+def list_db_records(request: Request):
+    """Scan and return all records from the DynamoDB memory table (admin only)."""
+    if not _is_admin(request):
+        raise HTTPException(status_code=403, detail="Admin access required")
     store = DynamoMemoryStore()
     try:
         items = []
@@ -934,7 +1043,7 @@ def get_lineage_detail(thread_id: str):
 
 @app.get("/review/detail")
 def get_review_detail(thread_id: str):
-    """Fetch the stored report + score for a past review run."""
+    """Fetch the stored report, score, and structured findings for a past review run."""
     store = DynamoMemoryStore()
     try:
         summary_report = store.get(thread_id, "summary_report") or ""
@@ -945,10 +1054,27 @@ def get_review_detail(thread_id: str):
         lr_raw = store.get(thread_id, "lineage_run")
         run = json.loads(lr_raw) if lr_raw else {}
 
+        # Return structured findings so the UI can render per-finding feedback.
+        def _load_findings(key: str) -> list[dict]:
+            raw = store.get(thread_id, key)
+            if not raw:
+                return []
+            try:
+                return json.loads(raw)
+            except Exception:
+                return []
+
+        findings = {
+            "security":    _load_findings("security_findings"),
+            "code_quality": _load_findings("code_quality_findings"),
+            "pr_reviewer": _load_findings("pr_review_findings"),
+        }
+
         return {
             "thread_id": thread_id,
             "summary_report": summary_report,
             "score_breakdown": score_breakdown,
+            "findings": findings,
             "final_score": run.get("final_score"),
             "should_block": run.get("should_block", False),
             "pr_title": run.get("pr_title", ""),
