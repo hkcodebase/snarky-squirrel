@@ -1,4 +1,0 @@
-[
-  {"title_contains": "password", "severity": "CRITICAL"},
-  {"title_contains": "jwt",      "severity": "CRITICAL"}
-]
