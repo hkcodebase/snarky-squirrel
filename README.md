@@ -13,11 +13,11 @@ subdomain hosted on AWS Route 53, and visitor analytics via GoatCounter.
 
 ## Files in `gh-pages` branch
 
-| File | Purpose |
-|------|---------|
+| File         | Purpose |
+|--------------|---------|
 | `index.html` | Landing page served by GitHub Pages |
-| `CNAME` | Tells GitHub Pages which custom domain to serve on |
-| `github-pages-setup-notes.md` | This file |
+| `CNAME`      | Tells GitHub Pages which custom domain to serve on |
+| `README.md`  | This file |
 
 The branch should only contain these files — source code and app files live on `main`.
 
