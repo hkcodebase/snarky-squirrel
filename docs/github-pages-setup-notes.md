@@ -7,18 +7,19 @@
 ## What was done
 
 The repo `hkcodebase/snarky-squirrel` is published via GitHub Pages with a custom
-subdomain hosted on AWS Route 53.
+subdomain hosted on AWS Route 53, and visitor analytics via GoatCounter.
 
 ---
 
-## Files added to the repo
+## Files in `gh-pages` branch
 
 | File | Purpose |
 |------|---------|
 | `index.html` | Landing page served by GitHub Pages |
 | `CNAME` | Tells GitHub Pages which custom domain to serve on |
+| `github-pages-setup-notes.md` | This file |
 
-Both files live at the **root of the `gh-pages` branch**.
+The branch should only contain these files — source code and app files live on `main`.
 
 ### `CNAME` contents
 
@@ -65,6 +66,45 @@ in Settings → Pages to trigger a fresh DNS check.
 
 ---
 
+## Analytics — GoatCounter
+
+Visitor analytics are handled by [GoatCounter](https://www.goatcounter.com) —
+privacy-friendly, no cookies, no GDPR banner needed.
+
+The tracking script is already in `index.html` just before `</body>`:
+
+```html
+<script data-goatcounter="https://YOUR-CODE.goatcounter.com/count"
+        async src="//gc.zgo.at/count.js"></script>
+```
+
+**To activate:**
+1. Sign up at [goatcounter.com](https://www.goatcounter.com)
+2. Create a site and note your site code (e.g. `snarky-squirrel`)
+3. Replace `YOUR-CODE` in `index.html` with your actual site code
+4. Push to `gh-pages`
+
+Dashboard is at `https://YOUR-CODE.goatcounter.com` — shows page views,
+referrers, countries, and browsers.
+
+---
+
+## Design
+
+The landing page follows the same design system as
+[hemantkumar.dev](https://hemantkumar.dev):
+
+- Font: JetBrains Mono
+- Light/dark theme toggle with `localStorage` persistence
+- CSS variables for theming (`--bg`, `--text`, `--muted`, `--border`)
+- Flat rows with invert-on-hover interaction
+- No frameworks or build tools — plain HTML/CSS/JS
+
+To keep the two sites visually consistent, avoid introducing new fonts,
+colors, or UI patterns not already in the personal site.
+
+---
+
 ## Deployment workflow
 
 To update the landing page:
@@ -85,7 +125,7 @@ To set up from scratch on a new machine:
 git clone https://github.com/hkcodebase/snarky-squirrel.git
 cd snarky-squirrel
 git checkout gh-pages
-# CNAME and index.html should already be here
+# index.html, CNAME, and this file should already be here
 ```
 
 ---
@@ -98,6 +138,7 @@ git checkout gh-pages
 | GitHub DNS check stuck | Remove custom domain in Settings → Pages, save, re-enter it, save again |
 | Page not found (404) | Check the branch is `gh-pages` and `index.html` is at the root |
 | Old content still showing | Hard-refresh (`Cmd/Ctrl + Shift + R`) or wait for CDN cache to clear |
+| GoatCounter not tracking | Check the site code in the script tag matches your GoatCounter account |
 
 ---
 
