@@ -1,835 +1,542 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Snarky Squirrel — Agentic PR Reviewer</title>
   <meta name="description" content="Automated pull-request reviewer powered by a multi-agent LangGraph pipeline. Scores code quality and security on a 0–10 scale." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
+  <!-- Prevent theme flash -->
+  <script>
+    (function () {
+      var s = localStorage.getItem('hk-theme');
+      var p = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (s === 'dark' || (!s && p)) document.documentElement.classList.add('dark');
+    })();
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
   <style>
+    /* ── THEME ───────────────────────────────────────── */
     :root {
-      --bg: #0b0e11;
-      --surface: #121619;
-      --surface2: #1a1f24;
-      --border: #232b33;
-      --accent: #e8c547;
-      --accent2: #f5a623;
-      --dim: #4a5568;
-      --muted: #6b7a8d;
-      --text: #e2e8f0;
-      --text-dim: #94a3b8;
-      --crit: #f87171;
-      --high: #fb923c;
-      --med: #fbbf24;
-      --low: #4ade80;
-      --radius: 6px;
+      --bg:       #f8f7f4;
+      --text:     #111111;
+      --muted:    #888888;
+      --border:   #d4d1ca;
+      --row-hover:#f0ede8;
+      --link:     #111111;
+    }
+    html.dark {
+      --bg:       #0e0e0e;
+      --text:     #dedad4;
+      --muted:    #555555;
+      --border:   #242424;
+      --row-hover:#161616;
+      --link:     #dedad4;
     }
 
+    /* ── RESET ───────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    html { scroll-behavior: smooth; }
-
+    /* ── BASE ────────────────────────────────────────── */
     body {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-size: 15px;
+      line-height: 1.8;
       background: var(--bg);
       color: var(--text);
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 14px;
-      line-height: 1.7;
-      overflow-x: hidden;
-    }
-
-    /* ─── NOISE OVERLAY ─── */
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
-      opacity: 0.025;
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-
-    /* ─── LAYOUT ─── */
-    .page { position: relative; z-index: 1; }
-
-    .container {
-      max-width: 900px;
+      max-width: 1020px;
       margin: 0 auto;
-      padding: 0 24px;
+      padding: 52px 44px 100px;
+      transition: background 0.2s ease, color 0.2s ease;
     }
 
-    /* ─── HEADER ─── */
-    header {
-      border-bottom: 1px solid var(--border);
-      padding: 20px 0;
-      position: sticky;
-      top: 0;
-      background: rgba(11, 14, 17, 0.92);
-      backdrop-filter: blur(12px);
-      z-index: 100;
+    a {
+      color: var(--link);
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
     }
 
-    .header-inner {
+    /* ── NAV ─────────────────────────────────────────── */
+    .nav {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      margin-bottom: 64px;
     }
-
-    .logo {
-      font-family: 'Syne', sans-serif;
-      font-weight: 800;
-      font-size: 18px;
-      letter-spacing: -0.5px;
-      color: var(--text);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .logo-icon {
-      width: 28px;
-      height: 28px;
-      background: var(--accent);
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    .nav-logo {
+      font-weight: 600;
       font-size: 16px;
+      letter-spacing: 0.02em;
     }
-
-    nav {
-      display: flex;
-      gap: 24px;
-      align-items: center;
-    }
-
-    nav a {
-      color: var(--text-dim);
-      font-size: 12px;
-      font-weight: 500;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-      transition: color 0.2s;
-    }
-
-    nav a:hover { color: var(--accent); text-decoration: none; }
-
-    .nav-cta {
-      background: var(--accent);
-      color: #0b0e11 !important;
-      padding: 6px 14px;
-      border-radius: var(--radius);
-      font-weight: 700;
-    }
-
-    .nav-cta:hover { opacity: 0.88; }
-
-    /* ─── HERO ─── */
-    .hero {
-      padding: 80px 0 60px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .hero-eyebrow {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin-bottom: 20px;
+    .nav-right {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 28px;
     }
-
-    .hero-eyebrow::before {
-      content: '';
-      display: block;
-      width: 24px;
-      height: 1px;
-      background: var(--accent);
-    }
-
-    h1 {
-      font-family: 'Syne', sans-serif;
-      font-size: clamp(36px, 7vw, 64px);
-      font-weight: 800;
-      line-height: 1.05;
-      letter-spacing: -2px;
-      color: var(--text);
-      margin-bottom: 24px;
-    }
-
-    h1 em {
-      font-style: normal;
-      color: var(--accent);
-    }
-
-    .hero-sub {
-      font-size: 15px;
-      color: var(--text-dim);
-      max-width: 560px;
-      line-height: 1.8;
-      margin-bottom: 36px;
-    }
-
-    .hero-actions {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 20px;
-      border-radius: var(--radius);
-      font-family: 'JetBrains Mono', monospace;
+    .nav-link {
       font-size: 13px;
-      font-weight: 700;
+      color: var(--muted);
+      transition: color 0.15s;
+    }
+    .nav-link:hover {
+      background: var(--text);
+      color: var(--bg);
+      text-decoration: none;
+    }
+    .theme-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 13px;
+      line-height: 1;
       cursor: pointer;
-      border: none;
-      transition: all 0.2s;
+      padding: 4px 8px;
+      transition: color 0.15s, border-color 0.15s;
     }
-
-    .btn-primary {
-      background: var(--accent);
-      color: #0b0e11;
-    }
-
-    .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); text-decoration: none; }
-
-    .btn-outline {
-      background: transparent;
+    .theme-btn:hover {
       color: var(--text);
-      border: 1px solid var(--border);
+      border-color: var(--text);
     }
 
-    .btn-outline:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
-
-    /* ─── SCORE BADGE ─── */
-    .score-demo {
-      margin-top: 48px;
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 12px;
-    }
-
-    .score-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 16px 20px;
-      animation: fadeUp 0.6s both;
-    }
-
-    .score-card:nth-child(1) { animation-delay: 0.1s; }
-    .score-card:nth-child(2) { animation-delay: 0.2s; }
-    .score-card:nth-child(3) { animation-delay: 0.3s; }
-    .score-card:nth-child(4) { animation-delay: 0.4s; }
-
-    .score-label {
-      font-size: 10px;
-      letter-spacing: 1.5px;
+    /* ── SECTION LABEL ───────────────────────────────── */
+    .label {
+      font-size: 12px;
+      letter-spacing: 0.13em;
       text-transform: uppercase;
       color: var(--muted);
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 28px;
+    }
+
+    /* ── HERO ────────────────────────────────────────── */
+    .hero {
+      margin-bottom: 72px;
+    }
+    .hero-name {
+      font-size: 28px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
       margin-bottom: 6px;
     }
-
-    .score-value {
-      font-family: 'Syne', sans-serif;
-      font-size: 28px;
-      font-weight: 800;
-      letter-spacing: -1px;
+    .hero-role {
+      font-size: 16px;
+      color: var(--muted);
+      margin-bottom: 32px;
     }
-
-    .score-bar {
-      margin-top: 8px;
-      height: 3px;
-      background: var(--border);
-      border-radius: 2px;
-      overflow: hidden;
-    }
-
-    .score-fill {
-      height: 100%;
-      border-radius: 2px;
-      transition: width 1s ease;
-    }
-
-    @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(16px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-
-    /* ─── SECTIONS ─── */
-    section {
-      padding: 64px 0;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .section-label {
-      font-size: 10px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin-bottom: 12px;
-    }
-
-    h2 {
-      font-family: 'Syne', sans-serif;
-      font-size: clamp(22px, 4vw, 32px);
-      font-weight: 800;
-      letter-spacing: -1px;
+    .hero-bio {
+      max-width: 720px;
+      margin-bottom: 24px;
       color: var(--text);
-      margin-bottom: 16px;
     }
-
-    .section-intro {
-      color: var(--text-dim);
-      max-width: 600px;
-      margin-bottom: 36px;
+    .hero-meta {
       font-size: 14px;
-    }
-
-    /* ─── PIPELINE ─── */
-    .pipeline {
+      color: var(--muted);
       display: flex;
       flex-direction: column;
-      gap: 0;
-      position: relative;
+      gap: 4px;
     }
+    .hero-meta a { color: var(--text); }
 
-    .pipeline::before {
-      content: '';
-      position: absolute;
-      left: 20px;
-      top: 32px;
-      bottom: 32px;
-      width: 1px;
-      background: linear-gradient(to bottom, var(--accent), var(--border));
+    /* ── SCORES ──────────────────────────────────────── */
+    .scores {
+      margin-bottom: 72px;
     }
-
-    .pipe-step {
-      display: flex;
-      gap: 20px;
-      align-items: flex-start;
-      padding: 16px 0;
-      animation: fadeUp 0.5s both;
-    }
-
-    .pipe-step:nth-child(1) { animation-delay: 0.1s; }
-    .pipe-step:nth-child(2) { animation-delay: 0.2s; }
-    .pipe-step:nth-child(3) { animation-delay: 0.3s; }
-    .pipe-step:nth-child(4) { animation-delay: 0.4s; }
-    .pipe-step:nth-child(5) { animation-delay: 0.5s; }
-
-    .pipe-dot {
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      border: 2px solid var(--border);
-      background: var(--surface);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      font-size: 16px;
-      position: relative;
-      z-index: 1;
-    }
-
-    .pipe-dot.active {
-      border-color: var(--accent);
-      background: rgba(232, 197, 71, 0.1);
-    }
-
-    .pipe-body { padding-top: 8px; }
-
-    .pipe-name {
-      font-family: 'Syne', sans-serif;
-      font-weight: 700;
-      font-size: 15px;
-      color: var(--text);
-      margin-bottom: 4px;
-    }
-
-    .pipe-desc { color: var(--text-dim); font-size: 12px; }
-
-    .pipe-badge {
-      display: inline-block;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--muted);
-      font-size: 10px;
-      padding: 2px 8px;
-      border-radius: 99px;
-      margin-top: 6px;
-      font-family: 'JetBrains Mono', monospace;
-    }
-
-    /* ─── FEATURES GRID ─── */
-    .features {
+    .score-row {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 16px;
-    }
-
-    .feature {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 20px 24px;
-      transition: border-color 0.2s;
-      animation: fadeUp 0.5s both;
-    }
-
-    .feature:hover { border-color: var(--accent); }
-    .feature:nth-child(1) { animation-delay: 0.1s; }
-    .feature:nth-child(2) { animation-delay: 0.2s; }
-    .feature:nth-child(3) { animation-delay: 0.3s; }
-    .feature:nth-child(4) { animation-delay: 0.4s; }
-    .feature:nth-child(5) { animation-delay: 0.5s; }
-    .feature:nth-child(6) { animation-delay: 0.6s; }
-
-    .feature-icon { font-size: 22px; margin-bottom: 10px; }
-
-    .feature-title {
-      font-family: 'Syne', sans-serif;
-      font-weight: 700;
-      font-size: 14px;
-      color: var(--text);
-      margin-bottom: 6px;
-    }
-
-    .feature-desc { color: var(--text-dim); font-size: 12px; line-height: 1.7; }
-
-    /* ─── SETUP TABLE ─── */
-    .setup-table {
-      width: 100%;
-      border-collapse: collapse;
+      grid-template-columns: 160px 1fr 48px;
+      column-gap: 20px;
+      align-items: center;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
       font-size: 13px;
     }
+    .score-row:first-of-type { border-top: 1px solid var(--border); }
+    .score-name { color: var(--muted); }
+    .score-bar-wrap {
+      height: 2px;
+      background: var(--border);
+    }
+    .score-bar-fill {
+      height: 100%;
+      background: var(--text);
+      transition: width 0.8s ease;
+    }
+    .score-val {
+      text-align: right;
+      font-weight: 600;
+    }
 
-    .setup-table th {
-      text-align: left;
-      font-size: 10px;
-      letter-spacing: 1.5px;
+    /* ── PIPELINE ────────────────────────────────────── */
+    .pipeline {
+      margin-bottom: 72px;
+    }
+    .pipe-row {
+      display: grid;
+      grid-template-columns: 28px 1fr auto;
+      column-gap: 20px;
+      padding: 18px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .pipe-row:first-of-type { border-top: 1px solid var(--border); }
+    .pipe-num {
+      font-size: 13px;
+      color: var(--muted);
+      padding-top: 2px;
+    }
+    .pipe-body { min-width: 0; }
+    .pipe-name {
+      font-weight: 500;
+      margin-bottom: 3px;
+    }
+    .pipe-desc {
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .pipe-badge {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      padding-top: 4px;
+      text-align: right;
+    }
+
+    /* ── FORMULA ─────────────────────────────────────── */
+    .formula-block {
+      margin-top: 28px;
+      padding: 20px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .formula-label {
+      font-size: 12px;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       color: var(--muted);
-      padding: 8px 12px;
-      border-bottom: 1px solid var(--border);
+      margin-bottom: 10px;
     }
-
-    .setup-table td {
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--border);
-      color: var(--text-dim);
-      vertical-align: top;
-    }
-
-    .setup-table td:first-child {
+    .formula-text {
+      font-size: 14px;
       color: var(--text);
-      font-weight: 500;
-      white-space: nowrap;
+      line-height: 2;
     }
-
-    .setup-table tr:last-child td { border-bottom: none; }
-
-    .tag {
-      display: inline-block;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--muted);
-      font-size: 11px;
-      padding: 2px 8px;
-      border-radius: 99px;
-    }
-
-    .tag-accent {
-      border-color: rgba(232, 197, 71, 0.3);
-      color: var(--accent);
-      background: rgba(232, 197, 71, 0.07);
-    }
-
-    /* ─── CODE BLOCK ─── */
-    .code-block {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 16px 20px;
-      overflow-x: auto;
+    .formula-note {
       font-size: 12px;
-      color: var(--text-dim);
-      line-height: 1.8;
-      margin-top: 16px;
+      color: var(--muted);
+      margin-top: 8px;
     }
 
-    .code-block .kw { color: var(--accent); }
-    .code-block .cm { color: var(--dim); }
-    .code-block .str { color: #86efac; }
-
-    /* ─── SCORE FORMULA ─── */
-    .formula-box {
-      background: var(--surface);
-      border: 1px solid rgba(232,197,71,0.25);
-      border-radius: var(--radius);
-      padding: 20px 24px;
-      margin-top: 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
+    /* ── SETUP ───────────────────────────────────────── */
+    .setup {
+      margin-bottom: 72px;
     }
-
-    .formula-label { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
-
-    .formula {
-      font-family: 'Syne', sans-serif;
-      font-size: clamp(13px, 2.5vw, 18px);
-      font-weight: 700;
-      color: var(--text);
-      word-break: break-all;
-    }
-
-    .formula .crit { color: var(--crit); }
-    .formula .high { color: var(--high); }
-    .formula .med  { color: var(--med);  }
-    .formula .low  { color: var(--low);  }
-
-    .formula-note { font-size: 12px; color: var(--muted); }
-
-    /* ─── COST TABLE ─── */
-    .cost-grid {
+    .setup-row {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 12px;
-      margin-top: 24px;
+      grid-template-columns: 200px 1fr 1fr auto;
+      column-gap: 20px;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--text);
+      transition: background 0.12s, padding 0.12s;
+      cursor: pointer;
+    }
+    .setup-row:first-of-type { border-top: 1px solid var(--border); }
+    .setup-row:hover {
+      background: var(--text);
+      color: var(--bg);
+      padding-left: 10px;
+      padding-right: 10px;
+      margin-left: -10px;
+      margin-right: -10px;
+      text-decoration: none;
+    }
+    .setup-row:hover .setup-label,
+    .setup-row:hover .setup-db,
+    .setup-row:hover .setup-llm,
+    .setup-row:hover .setup-arrow {
+      color: var(--bg);
+      opacity: 0.7;
+    }
+    .setup-row:hover .setup-name { color: var(--bg); opacity: 1; }
+    .setup-name { font-weight: 500; }
+    .setup-label { color: var(--muted); }
+    .setup-db    { color: var(--muted); }
+    .setup-arrow { color: var(--muted); text-align: right; }
+
+    /* ── FEATURES ────────────────────────────────────── */
+    .features {
+      margin-bottom: 72px;
+    }
+    .feature-row {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      column-gap: 20px;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .feature-row:first-of-type { border-top: 1px solid var(--border); }
+    .feature-name {
+      font-weight: 500;
+      color: var(--text);
+    }
+    .feature-desc { color: var(--muted); }
+
+    /* ── CONNECT ─────────────────────────────────────── */
+    .connect {
+      margin-bottom: 72px;
+    }
+    .connect-bio {
+      color: var(--muted);
+      max-width: 460px;
+      margin-bottom: 22px;
+      font-size: 13px;
+    }
+    .connect-links {
+      display: flex;
+      gap: 28px;
+    }
+    .connect-link {
+      font-size: 13px;
+    }
+    .connect-link:hover {
+      background: var(--text);
+      color: var(--bg);
+      text-decoration: none;
     }
 
-    .cost-item {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 16px 20px;
-    }
-
-    .cost-name { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
-
-    .cost-value {
-      font-family: 'Syne', sans-serif;
-      font-weight: 700;
-      font-size: 18px;
-      color: var(--accent);
-    }
-
-    /* ─── FOOTER ─── */
+    /* ── FOOTER ──────────────────────────────────────── */
     footer {
-      padding: 48px 0;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
-      gap: 16px;
-    }
-
-    .footer-logo {
-      font-family: 'Syne', sans-serif;
-      font-weight: 800;
-      font-size: 16px;
-      color: var(--text-dim);
-    }
-
-    .footer-links {
-      display: flex;
-      gap: 20px;
-      flex-wrap: wrap;
-    }
-
-    .footer-links a {
+      gap: 8px;
+      font-size: 11.5px;
       color: var(--muted);
-      font-size: 12px;
-      transition: color 0.2s;
     }
 
-    .footer-links a:hover { color: var(--accent); text-decoration: none; }
-
-    /* ─── SCROLLBAR ─── */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: var(--bg); }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--dim); }
-
-    /* ─── RESPONSIVE ─── */
-    @media (max-width: 600px) {
-      nav { gap: 12px; }
-      .score-demo { grid-template-columns: 1fr 1fr; }
-      footer { flex-direction: column; align-items: flex-start; }
+    /* ── RESPONSIVE ──────────────────────────────────── */
+    @media (max-width: 560px) {
+      body { padding: 32px 20px 64px; }
+      .nav-right { gap: 16px; }
+      .score-row { grid-template-columns: 120px 1fr 40px; }
+      .pipe-row  { grid-template-columns: 24px 1fr; }
+      .pipe-badge { display: none; }
+      .setup-row { grid-template-columns: 1fr auto; }
+      .setup-label, .setup-db { display: none; }
+      .feature-row { grid-template-columns: 1fr; gap: 4px; }
     }
   </style>
 </head>
 <body>
-<div class="page">
 
-  <!-- HEADER -->
-  <header>
-    <div class="container">
-      <div class="header-inner">
-        <div class="logo">
-          <div class="logo-icon">🐿</div>
-          snarky-squirrel
-        </div>
-        <nav>
-          <a href="#pipeline">Pipeline</a>
-          <a href="#features">Features</a>
-          <a href="#setup">Setup</a>
-          <a href="https://github.com/hkcodebase/snarky-squirrel" class="nav-cta" target="_blank" rel="noopener">
-            GitHub ↗
-          </a>
-        </nav>
-      </div>
-    </div>
-  </header>
+<!-- Nav -->
+<nav class="nav">
+  <a href="https://hemantkumar.dev" class="nav-logo">HK</a>
+  <div class="nav-right">
+    <a href="#pipeline" class="nav-link">Pipeline</a>
+    <a href="#setup"    class="nav-link">Setup</a>
+    <a href="#features" class="nav-link">Features</a>
+    <a href="https://github.com/hkcodebase/snarky-squirrel" target="_blank" class="nav-link">GitHub</a>
+    <button id="theme-toggle" class="theme-btn" aria-label="Toggle theme" title="Toggle light / dark">◐</button>
+  </div>
+</nav>
 
-  <!-- HERO -->
+<main>
+
+  <!-- Hero -->
   <section class="hero">
-    <div class="container">
-      <div class="hero-eyebrow">Agentic AI · PR Review System</div>
-      <h1>Your PRs,<br /><em>brutally</em> reviewed.</h1>
-      <p class="hero-sub">
-        Snarky Squirrel runs a multi-agent LangGraph pipeline over your pull request diff,
-        scores code quality and security findings on a 0–10 scale, and optionally posts a
-        structured review comment straight back to GitHub.
+    <p class="hero-name">Snarky Squirrel</p>
+    <p class="hero-role">Agentic PR Reviewer</p>
+    <p class="hero-bio">
+      Automated pull-request reviewer that runs a multi-agent LangGraph pipeline,
+      scores code quality and security findings on a 0–10 scale, and optionally posts a
+      structured review comment to GitHub.
+      Built on AWS Bedrock (Claude Haiku), DynamoDB, FastAPI, and Cognito auth.
+    </p>
+    <div class="hero-meta">
+      <span>By <a href="https://hemantkumar.dev" target="_blank">Hemant Kumar</a></span>
+      <span>Source → <a href="https://github.com/hkcodebase/snarky-squirrel" target="_blank">github.com/hkcodebase/snarky-squirrel</a></span>
+    </div>
+  </section>
+
+  <!-- Scores -->
+  <section class="scores">
+    <p class="label">Sample Output</p>
+
+    <div class="score-row">
+      <span class="score-name">Security</span>
+      <div class="score-bar-wrap"><div class="score-bar-fill" style="width:85%"></div></div>
+      <span class="score-val">8.5</span>
+    </div>
+    <div class="score-row">
+      <span class="score-name">Code Quality</span>
+      <div class="score-bar-wrap"><div class="score-bar-fill" style="width:70%"></div></div>
+      <span class="score-val">7.0</span>
+    </div>
+    <div class="score-row">
+      <span class="score-name">Critical Findings</span>
+      <div class="score-bar-wrap"><div class="score-bar-fill" style="width:0%"></div></div>
+      <span class="score-val">0</span>
+    </div>
+    <div class="score-row">
+      <span class="score-name">Should Block</span>
+      <div class="score-bar-wrap"><div class="score-bar-fill" style="width:0%"></div></div>
+      <span class="score-val">No</span>
+    </div>
+  </section>
+
+  <!-- Pipeline -->
+  <section id="pipeline" class="pipeline">
+    <p class="label">Agent Pipeline</p>
+
+    <div class="pipe-row">
+      <span class="pipe-num">01</span>
+      <div class="pipe-body">
+        <p class="pipe-name">Supervisor</p>
+        <p class="pipe-desc">Routes the pipeline and decides agent execution order via the LLM.</p>
+      </div>
+      <span class="pipe-badge"></span>
+    </div>
+    <div class="pipe-row">
+      <span class="pipe-num">02</span>
+      <div class="pipe-body">
+        <p class="pipe-name">Security Agent</p>
+        <p class="pipe-desc">Scans the PR diff for vulnerabilities. Runs first.</p>
+      </div>
+      <span class="pipe-badge">→ security_findings</span>
+    </div>
+    <div class="pipe-row">
+      <span class="pipe-num">03</span>
+      <div class="pipe-body">
+        <p class="pipe-name">Code Quality Agent</p>
+        <p class="pipe-desc">Checks style, complexity, and best practices using prior findings.</p>
+      </div>
+      <span class="pipe-badge">→ code_quality_findings</span>
+    </div>
+    <div class="pipe-row">
+      <span class="pipe-num">04</span>
+      <div class="pipe-body">
+        <p class="pipe-name">PR Reviewer Agent</p>
+        <p class="pipe-desc">Produces a holistic review reading all prior findings.</p>
+      </div>
+      <span class="pipe-badge">→ pr_review_findings</span>
+    </div>
+    <div class="pipe-row">
+      <span class="pipe-num">05</span>
+      <div class="pipe-body">
+        <p class="pipe-name">Summary Agent</p>
+        <p class="pipe-desc">Aggregates all findings into a scored report and lineage trace.</p>
+      </div>
+      <span class="pipe-badge">→ summary_report</span>
+    </div>
+
+    <div class="formula-block">
+      <p class="formula-label">Score Formula</p>
+      <p class="formula-text">
+        score = 10 − (CRITICAL × 5 + HIGH × 2 + MEDIUM × 1 + LOW × 0.5)
       </p>
-      <div class="hero-actions">
-        <a href="https://github.com/hkcodebase/snarky-squirrel" class="btn btn-primary" target="_blank" rel="noopener">
-          ↳ View on GitHub
-        </a>
-        <a href="#setup" class="btn btn-outline">Quick start →</a>
-      </div>
-
-      <!-- Live-feeling score cards -->
-      <div class="score-demo">
-        <div class="score-card">
-          <div class="score-label">Security Score</div>
-          <div class="score-value" style="color: var(--low)">8.5</div>
-          <div class="score-bar"><div class="score-fill" style="width:85%; background: var(--low)"></div></div>
-        </div>
-        <div class="score-card">
-          <div class="score-label">Code Quality</div>
-          <div class="score-value" style="color: var(--accent)">7.0</div>
-          <div class="score-bar"><div class="score-fill" style="width:70%; background: var(--accent)"></div></div>
-        </div>
-        <div class="score-card">
-          <div class="score-label">Critical Findings</div>
-          <div class="score-value" style="color: var(--crit)">0</div>
-          <div class="score-bar"><div class="score-fill" style="width:0%; background: var(--crit)"></div></div>
-        </div>
-        <div class="score-card">
-          <div class="score-label">Should Block?</div>
-          <div class="score-value" style="color: var(--low); font-size: 20px; padding-top: 4px;">No</div>
-          <div class="score-bar"><div class="score-fill" style="width:0%; background: var(--crit)"></div></div>
-        </div>
-      </div>
+      <p class="formula-note">A CRITICAL finding sets should_block = true.</p>
     </div>
   </section>
 
-  <!-- PIPELINE -->
-  <section id="pipeline">
-    <div class="container">
-      <div class="section-label">// agent pipeline</div>
-      <h2>How it works</h2>
-      <p class="section-intro">
-        A supervisor orchestrates four specialist agents in sequence, each reading prior
-        findings from DynamoDB before adding its own analysis.
-      </p>
+  <!-- Setup -->
+  <section id="setup" class="setup">
+    <p class="label">Setup</p>
 
-      <div class="pipeline">
-        <div class="pipe-step">
-          <div class="pipe-dot active">👁</div>
-          <div class="pipe-body">
-            <div class="pipe-name">Supervisor</div>
-            <div class="pipe-desc">Routes the pipeline and decides execution order using the LLM.</div>
-          </div>
-        </div>
-        <div class="pipe-step">
-          <div class="pipe-dot active">🔐</div>
-          <div class="pipe-body">
-            <div class="pipe-name">Security Agent</div>
-            <div class="pipe-desc">First to run. Scans diff for vulnerabilities and writes <code>security_findings</code>.</div>
-            <span class="pipe-badge">writes → security_findings</span>
-          </div>
-        </div>
-        <div class="pipe-step">
-          <div class="pipe-dot active">🧹</div>
-          <div class="pipe-body">
-            <div class="pipe-name">Code Quality Agent</div>
-            <div class="pipe-desc">Reads security findings, then checks style, complexity, and best practices.</div>
-            <span class="pipe-badge">reads → security_findings</span>
-          </div>
-        </div>
-        <div class="pipe-step">
-          <div class="pipe-dot active">📋</div>
-          <div class="pipe-body">
-            <div class="pipe-name">PR Reviewer Agent</div>
-            <div class="pipe-desc">Reads both prior findings to produce a holistic PR review with context.</div>
-            <span class="pipe-badge">reads → security + quality</span>
-          </div>
-        </div>
-        <div class="pipe-step">
-          <div class="pipe-dot active">📊</div>
-          <div class="pipe-body">
-            <div class="pipe-name">Summary Agent</div>
-            <div class="pipe-desc">Aggregates all findings into a scored report and saves a lineage trace.</div>
-            <span class="pipe-badge">writes → summary_report + lineage_run</span>
-          </div>
-        </div>
-      </div>
+    <a href="https://github.com/hkcodebase/snarky-squirrel/blob/main/docs/setup-local.md" target="_blank" class="setup-row">
+      <span class="setup-name">Local — Ollama</span>
+      <span class="setup-label">Ollama (Gemma) in Docker</span>
+      <span class="setup-db">DynamoDB Local</span>
+      <span class="setup-arrow">↗</span>
+    </a>
+    <a href="https://github.com/hkcodebase/snarky-squirrel/blob/main/docs/setup-local.md" target="_blank" class="setup-row">
+      <span class="setup-name">Local — Docker Model</span>
+      <span class="setup-label">Docker Desktop built-in</span>
+      <span class="setup-db">DynamoDB Local</span>
+      <span class="setup-arrow">↗</span>
+    </a>
+    <a href="https://github.com/hkcodebase/snarky-squirrel/blob/main/docs/setup-aws.md" target="_blank" class="setup-row">
+      <span class="setup-name">AWS</span>
+      <span class="setup-label">Bedrock — Claude Haiku</span>
+      <span class="setup-db">AWS DynamoDB</span>
+      <span class="setup-arrow">↗</span>
+    </a>
+  </section>
 
-      <div class="formula-box">
-        <div class="formula-label">Score formula</div>
-        <div class="formula">
-          score = 10 −
-          (<span class="crit">CRITICAL × 5</span> +
-          <span class="high">HIGH × 2</span> +
-          <span class="med">MEDIUM × 1</span> +
-          <span class="low">LOW × 0.5</span>)
-        </div>
-        <div class="formula-note">A CRITICAL finding sets <code>should_block = true</code>.</div>
-      </div>
+  <!-- Features -->
+  <section id="features" class="features">
+    <p class="label">Features</p>
+
+    <div class="feature-row">
+      <span class="feature-name">Multi-agent pipeline</span>
+      <span class="feature-desc">LangGraph supervisor + specialist agents with shared DynamoDB memory.</span>
+    </div>
+    <div class="feature-row">
+      <span class="feature-name">Flexible LLM backends</span>
+      <span class="feature-desc">Ollama, Docker Model Runner, or AWS Bedrock — switched via one env var.</span>
+    </div>
+    <div class="feature-row">
+      <span class="feature-name">Cognito auth</span>
+      <span class="feature-desc">OAuth2 via AWS Cognito Hosted UI with RS256 JWT validation and invite-only access.</span>
+    </div>
+    <div class="feature-row">
+      <span class="feature-name">Data lineage</span>
+      <span class="feature-desc">Per-run agent trace stored in DynamoDB, surfaced in the web UI sidebar.</span>
+    </div>
+    <div class="feature-row">
+      <span class="feature-name">GitHub integration</span>
+      <span class="feature-desc">Fetches PR diffs via GitHub API. Posts review comments back — HMAC-verified webhooks.</span>
+    </div>
+    <div class="feature-row">
+      <span class="feature-name">Evaluation framework</span>
+      <span class="feature-desc">Offline, shadow, and online eval modes with thumbs feedback and aggregate metrics.</span>
+    </div>
+    <div class="feature-row">
+      <span class="feature-name">Cost</span>
+      <span class="feature-desc">~$0.05–0.12 per PR review on AWS (Bedrock Haiku + DynamoDB on-demand + t3.micro).</span>
     </div>
   </section>
 
-  <!-- FEATURES -->
-  <section id="features">
-    <div class="container">
-      <div class="section-label">// capabilities</div>
-      <h2>What you get</h2>
-      <p class="section-intro">
-        Everything needed for automated, agent-driven PR reviews — local or cloud.
-      </p>
-
-      <div class="features">
-        <div class="feature">
-          <div class="feature-icon">🤖</div>
-          <div class="feature-title">LangGraph Multi-Agent</div>
-          <div class="feature-desc">Supervisor + specialist agents with shared DynamoDB memory. LLM decides execution order dynamically.</div>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">☁️</div>
-          <div class="feature-title">Flexible LLM Backends</div>
-          <div class="feature-desc">Runs on Ollama (local), Docker Model Runner, or AWS Bedrock (Claude Haiku). Switch with one env var.</div>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">🔒</div>
-          <div class="feature-title">Cognito Auth</div>
-          <div class="feature-desc">OAuth2 login via AWS Cognito Hosted UI with RS256 JWT validation. Invite-only access with admin controls.</div>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">📐</div>
-          <div class="feature-title">Data Lineage</div>
-          <div class="feature-desc">Per-run agent trace stored in DynamoDB and surfaced in the web UI sidebar for full auditability.</div>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">🪝</div>
-          <div class="feature-title">GitHub Integration</div>
-          <div class="feature-desc">Fetches PR diffs via GitHub API. Optionally posts review comments back — token-gated, HMAC-verified webhooks.</div>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">📊</div>
-          <div class="feature-title">Evaluation Framework</div>
-          <div class="feature-desc">Offline, shadow, and online evaluation modes with thumbs-up/down feedback and aggregate metric gauges.</div>
-        </div>
-      </div>
+  <!-- Connect -->
+  <section class="connect">
+    <p class="label">Links</p>
+    <p class="connect-bio">
+      Questions, issues, or ideas — open a GitHub issue or reach out directly.
+    </p>
+    <div class="connect-links">
+      <a href="https://github.com/hkcodebase/snarky-squirrel" target="_blank" class="connect-link">GitHub</a>
+      <a href="https://github.com/hkcodebase/snarky-squirrel/issues" target="_blank" class="connect-link">Issues</a>
+      <a href="https://hemantkumar.dev" target="_blank" class="connect-link">hemantkumar.dev</a>
     </div>
   </section>
 
-  <!-- SETUP -->
-  <section id="setup">
-    <div class="container">
-      <div class="section-label">// quick start</div>
-      <h2>Pick your setup</h2>
-      <p class="section-intro">Three paths to running Snarky Squirrel. Choose based on your environment.</p>
+</main>
 
-      <table class="setup-table">
-        <thead>
-          <tr>
-            <th>Setup</th>
-            <th>LLM Backend</th>
-            <th>Database</th>
-            <th>Guide</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Local — Ollama</td>
-            <td>Ollama (Gemma) in Docker</td>
-            <td>DynamoDB Local</td>
-            <td><a href="https://github.com/hkcodebase/snarky-squirrel/blob/main/docs/setup-local.md" target="_blank">docs/setup-local.md ↗</a></td>
-          </tr>
-          <tr>
-            <td>Local — Docker Model</td>
-            <td>Docker Desktop built-in</td>
-            <td>DynamoDB Local</td>
-            <td><a href="https://github.com/hkcodebase/snarky-squirrel/blob/main/docs/setup-local.md" target="_blank">docs/setup-local.md ↗</a></td>
-          </tr>
-          <tr>
-            <td><span class="tag tag-accent">Cloud</span> AWS</td>
-            <td>AWS Bedrock (Claude Haiku)</td>
-            <td>AWS DynamoDB</td>
-            <td><a href="https://github.com/hkcodebase/snarky-squirrel/blob/main/docs/setup-aws.md" target="_blank">docs/setup-aws.md ↗</a></td>
-          </tr>
-        </tbody>
-      </table>
+<footer>
+  <span>© 2026 Hemant Kumar</span>
+  <span>GitHub Pages · snarky-squirrel</span>
+</footer>
 
-      <div class="code-block">
-        <span class="cm"># clone and start local services</span><br/>
-        git clone https://github.com/hkcodebase/snarky-squirrel.git<br/>
-        <span class="kw">cd</span> snarky-squirrel<br/>
-        cp .env.example .env<br/>
-        docker compose up -d<br/>
-        python scripts/setup_local.py<br/>
-        <span class="kw">uvicorn</span> api:app --reload
-      </div>
+<script>
+  document.getElementById('theme-toggle').addEventListener('click', function () {
+    var isDark = document.documentElement.classList.toggle('dark');
+    localStorage.setItem('hk-theme', isDark ? 'dark' : 'light');
+  });
+</script>
 
-      <div class="cost-grid">
-        <div class="cost-item">
-          <div class="cost-name">Bedrock Claude Haiku 4.5</div>
-          <div class="cost-value">~$0.01</div>
-        </div>
-        <div class="cost-item">
-          <div class="cost-name">DynamoDB (on-demand)</div>
-          <div class="cost-value">&lt;$0.01</div>
-        </div>
-        <div class="cost-item">
-          <div class="cost-name">EC2 t3.micro</div>
-          <div class="cost-value">~$8/mo</div>
-        </div>
-        <div class="cost-item">
-          <div class="cost-name">Total per PR</div>
-          <div class="cost-value">~$0.12</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- FOOTER -->
-  <footer class="container">
-    <div class="footer-logo">🐿 snarky-squirrel</div>
-    <div class="footer-links">
-      <a href="https://github.com/hkcodebase/snarky-squirrel" target="_blank" rel="noopener">GitHub</a>
-      <a href="https://github.com/hkcodebase/snarky-squirrel/blob/main/docs/setup-local.md" target="_blank" rel="noopener">Local Setup</a>
-      <a href="https://github.com/hkcodebase/snarky-squirrel/blob/main/docs/setup-aws.md" target="_blank" rel="noopener">AWS Setup</a>
-      <a href="https://github.com/hkcodebase/snarky-squirrel/issues" target="_blank" rel="noopener">Issues</a>
-      <a href="https://github.com/hkcodebase" target="_blank" rel="noopener">@hkcodebase</a>
-    </div>
-  </footer>
-
-</div>
 </body>
 </html>
