@@ -1,232 +1,456 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Snarky Squirrel — Agentic PR Reviewer</title>
-  <meta name="description" content="Automated pull-request reviewer powered by a multi-agent LangGraph pipeline. Scores code quality and security on a 0–10 scale." />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Snarky Squirrel — Agentic PR Reviewer</title>
+<meta name="description" content="Automated pull-request reviewer powered by a multi-agent LangGraph pipeline. Scores code quality and security on a 0–10 scale.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#0E0F12;
+    --paper-2:#14161A;
+    --ink-100:#EDECE6;
+    --ink-300:#A7A69F;
+    --ink-500:#6E7178;
+    --line:#23262B;
+    --line-2:#2D3037;
+    --signal:#FF4D2E;
+    --signal-soft:rgba(255,77,46,0.14);
+    --ok:#4ECB71;
+    --grid:rgba(255,255,255,0.035);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    background:var(--paper); color:var(--ink-100);
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    position:relative; min-height:100vh; overflow-x:hidden;
+  }
+  body.is-loading{overflow:hidden;height:100vh;}
+  ::selection{background:var(--signal);color:#fff;}
 
-  <!-- Prevent theme flash -->
-  <script>
-    (function () {
-      var s = localStorage.getItem('hk-theme');
-      var p = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      if (s === 'dark' || (!s && p)) document.documentElement.classList.add('dark');
-    })();
-  </script>
+  .bg-grid{
+    position:fixed; inset:0; z-index:0;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size:64px 64px;
+    mask-image:radial-gradient(circle at 50% 30%, #000 0%, #000 30%, transparent 70%);
+    -webkit-mask-image:radial-gradient(circle at 50% 30%, #000 0%, #000 30%, transparent 70%);
+    pointer-events:none;
+  }
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="hk.css">
+  /* ============ LOADER OVERLAY ============ */
+  .loader-overlay{
+    position:fixed; inset:0; z-index:50;
+    display:grid; place-items:center; background:var(--paper);
+    transition:opacity .7s ease, visibility .7s;
+  }
+  .loader-overlay.done{opacity:0; visibility:hidden; pointer-events:none;}
+  .lo-glow{
+    position:absolute; left:50%; top:44%;
+    width:720px; height:720px; transform:translate(-50%,-50%);
+    background:radial-gradient(circle, var(--signal-soft) 0%, transparent 62%);
+    filter:blur(8px); pointer-events:none;
+  }
+  .lo-vignette{
+    position:absolute; inset:0;
+    background:radial-gradient(circle at 50% 42%, transparent 50%, rgba(0,0,0,0.55) 100%);
+    pointer-events:none;
+  }
+  .stage{position:relative; z-index:2; display:flex; flex-direction:column; align-items:center;}
+  .scene{width:300px; height:280px; perspective:1100px; perspective-origin:50% 44%; display:grid; place-items:center;}
+  .cube-wrap{transform-style:preserve-3d; animation:tumble 14s linear infinite; will-change:transform;}
+  @keyframes tumble{
+    0%   {transform:rotateX(-24deg) rotateY(0deg);}
+    100% {transform:rotateX(-24deg) rotateY(360deg);}
+  }
+  .cube{position:relative; width:150px; height:150px; transform-style:preserve-3d; margin:0 auto;}
+  .face{
+    position:absolute; width:150px; height:150px; left:50%; top:50%; margin:-75px 0 0 -75px;
+    border:1px solid var(--line-2);
+    background:linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0));
+    backdrop-filter:blur(1px);
+    display:grid; place-items:center;
+    box-shadow:inset 0 0 30px rgba(0,0,0,0.4);
+  }
+  .face::before{
+    content:""; position:absolute; inset:8px;
+    background:
+      linear-gradient(var(--signal),var(--signal)) 0 0/10px 1px no-repeat,
+      linear-gradient(var(--signal),var(--signal)) 0 0/1px 10px no-repeat,
+      linear-gradient(var(--signal),var(--signal)) 100% 0/10px 1px no-repeat,
+      linear-gradient(var(--signal),var(--signal)) 100% 0/1px 10px no-repeat,
+      linear-gradient(var(--signal),var(--signal)) 0 100%/10px 1px no-repeat,
+      linear-gradient(var(--signal),var(--signal)) 0 100%/1px 10px no-repeat,
+      linear-gradient(var(--signal),var(--signal)) 100% 100%/10px 1px no-repeat,
+      linear-gradient(var(--signal),var(--signal)) 100% 100%/1px 10px no-repeat;
+    opacity:0.55;
+  }
+  .glyph{font-family:"Space Grotesk",sans-serif; font-weight:700; font-size:40px; letter-spacing:-1px; color:var(--ink-100); text-shadow:0 2px 18px rgba(0,0,0,0.5); text-align:center;}
+  .glyph small{display:block; font-family:"IBM Plex Mono",monospace; font-weight:500; font-size:8.5px; letter-spacing:2px; color:var(--signal); text-align:center; margin-top:5px; text-shadow:none;}
+  .f-front {transform:translateZ(75px);}
+  .f-back  {transform:rotateY(180deg) translateZ(75px);}
+  .f-right {transform:rotateY(90deg) translateZ(75px);}
+  .f-left  {transform:rotateY(-90deg) translateZ(75px);}
+  .f-top   {transform:rotateX(90deg) translateZ(75px);}
+  .f-bottom{transform:rotateX(-90deg) translateZ(75px);}
+  .f-back,.f-bottom{opacity:0.4;}
+  .f-left,.f-right,.f-top{opacity:0.72;}
+  .floor{
+    position:absolute; left:50%; top:50%; width:150px;height:150px; margin:-75px 0 0 -75px;
+    transform:rotateX(90deg) translateZ(-96px);
+    background:radial-gradient(ellipse at center, rgba(255,77,46,0.20), transparent 68%);
+    filter:blur(6px);
+  }
+  .mark{margin-top:2px; text-align:center;}
+  .mark .name{font-family:"Space Grotesk",sans-serif; font-weight:600; font-size:22px; letter-spacing:-0.5px;}
+  .mark .name .dev{color:var(--signal);}
+  .mark .role{margin-top:8px; font-size:10.5px; letter-spacing:3px; text-transform:uppercase; color:var(--ink-500);}
+  .loader{margin-top:34px; width:320px; max-width:78vw;}
+  .loader .row{display:flex; justify-content:space-between; align-items:baseline; font-size:11px; letter-spacing:1px; color:var(--ink-300); margin-bottom:10px;}
+  .loader .row .status{color:var(--ink-500);}
+  .loader .row .pct{font-variant-numeric:tabular-nums; color:var(--ink-100); font-weight:600; font-size:13px;}
+  .track{position:relative; height:3px; background:var(--line); overflow:hidden;}
+  .barfill{position:absolute; left:0; top:0; bottom:0; width:0%; background:var(--signal); box-shadow:0 0 12px rgba(255,77,46,0.6); transition:width .25s cubic-bezier(.2,.7,.2,1);}
+  .ticks{margin-top:9px; display:flex; justify-content:space-between; font-size:9px; letter-spacing:1px; color:var(--ink-500);}
+  @media (prefers-reduced-motion: reduce){
+    .cube-wrap{animation:none; transform:rotateX(-24deg) rotateY(-32deg);}
+  }
+
+  /* ============ SITE ============ */
+  .site{
+    position:relative; z-index:2;
+    max-width:920px; margin:0 auto; padding:0 28px 110px;
+    opacity:0; transition:opacity .9s ease .15s;
+  }
+  body.loaded .site{opacity:1;}
+
+  .nav{
+    position:sticky; top:0; z-index:10;
+    display:flex; align-items:center; justify-content:space-between; height:64px;
+    backdrop-filter:blur(8px);
+    background:linear-gradient(var(--paper), rgba(14,15,18,0.55) 70%, transparent);
+    margin:0 -28px; padding:0 28px;
+  }
+  .nav .brand{font-family:"Space Grotesk",sans-serif; font-weight:700; font-size:14px; letter-spacing:.5px; color:var(--ink-100); border:1px solid var(--line-2); padding:6px 9px; text-decoration:none;}
+  .nav .links{display:flex; gap:24px; align-items:center;}
+  .nav .links a{color:var(--ink-300); text-decoration:none; font-size:12px; letter-spacing:1px; text-transform:uppercase; transition:color .2s;}
+  .nav .links a:hover{color:var(--signal);}
+
+  .hero{padding:74px 0 56px; border-bottom:1px solid var(--line);}
+  .hero .eyebrow{font-size:11px; letter-spacing:3px; text-transform:uppercase; color:var(--signal); margin-bottom:22px;}
+  .hero h1{font-family:"Space Grotesk",sans-serif; font-weight:700; font-size:clamp(40px,8vw,74px); line-height:.98; letter-spacing:-2px; color:var(--ink-100); margin-bottom:16px;}
+  .hero .sub{font-family:"Space Grotesk",sans-serif; font-weight:500; font-size:clamp(17px,3vw,23px); color:var(--ink-300); letter-spacing:-.3px; margin-bottom:30px; display:flex; align-items:center; gap:14px;}
+  .hero .sub .ln{width:26px;height:2px;background:var(--signal);}
+  .hero p{font-size:14.5px; line-height:1.8; color:var(--ink-300); max-width:680px;}
+  .hero .herometa{margin-top:26px; display:flex; flex-wrap:wrap; gap:8px 28px; font-size:12.5px; color:var(--ink-500);}
+  .hero .herometa a{color:var(--signal); text-decoration:none; border-bottom:1px solid var(--signal-soft);}
+  .hero .herometa a:hover{border-bottom-color:var(--signal);}
+
+  /* section + label-pill + box  (mirrors hk.css pattern) */
+  .sec{padding:56px 0 0;}
+  .label{
+    display:inline-block; font-size:10.5px; letter-spacing:2.5px; text-transform:uppercase;
+    color:var(--signal); border:1px solid var(--signal); border-radius:2px;
+    padding:5px 11px; margin-bottom:18px;
+  }
+  .box{border:1px solid var(--line); background:rgba(255,255,255,0.012);}
+
+  /* score rows */
+  .score-row{display:grid; grid-template-columns:150px 1fr 52px; gap:18px; align-items:center; padding:18px 22px; border-top:1px solid var(--line);}
+  .score-row:first-child{border-top:none;}
+  .score-name{font-size:13px; color:var(--ink-300); letter-spacing:.3px;}
+  .score-bar-wrap{height:6px; background:var(--line); position:relative; overflow:hidden;}
+  .score-bar-fill{position:absolute; left:0; top:0; bottom:0; background:var(--signal); box-shadow:0 0 10px rgba(255,77,46,0.5);}
+  .score-val{font-family:"Space Grotesk",sans-serif; font-weight:700; font-size:16px; text-align:right; color:var(--ink-100); font-variant-numeric:tabular-nums;}
+
+  /* pipeline rows */
+  .pipe-row{display:grid; grid-template-columns:40px 1fr auto; gap:18px; align-items:start; padding:20px 22px; border-top:1px solid var(--line);}
+  .pipe-row:first-child{border-top:none;}
+  .pipe-num{font-size:12px; color:var(--signal); padding-top:3px;}
+  .pipe-name{font-family:"Space Grotesk",sans-serif; font-weight:600; font-size:16px; color:var(--ink-100); margin-bottom:5px; letter-spacing:-.2px;}
+  .pipe-desc{font-size:13px; line-height:1.55; color:var(--ink-300); max-width:480px;}
+  .pipe-badge{font-size:11px; color:var(--ink-500); white-space:nowrap; padding-top:4px; letter-spacing:.3px;}
+  .formula-block{margin:0; padding:22px; border-top:1px solid var(--line); background:var(--signal-soft);}
+  .formula-label{font-size:10.5px; letter-spacing:2px; text-transform:uppercase; color:var(--signal); margin-bottom:12px;}
+  .formula-text{font-size:14px; color:var(--ink-100); letter-spacing:.2px; line-height:1.6;}
+  .formula-note{margin-top:10px; font-size:12px; color:var(--ink-300);}
+
+  /* setup rows */
+  .setup-row{display:grid; grid-template-columns:1fr 1fr 1fr 24px; gap:16px; align-items:center; padding:18px 22px; border-top:1px solid var(--line); text-decoration:none; color:inherit; transition:background .2s, padding .2s;}
+  .setup-row:first-child{border-top:none;}
+  .setup-row:hover{background:rgba(255,255,255,0.025); padding-left:28px;}
+  .setup-name{font-family:"Space Grotesk",sans-serif; font-weight:600; font-size:14.5px; color:var(--ink-100);}
+  .setup-label,.setup-db{font-size:12.5px; color:var(--ink-300);}
+  .setup-arrow{color:var(--ink-500); text-align:right; transition:color .2s, transform .2s;}
+  .setup-row:hover .setup-arrow{color:var(--signal); transform:translate(2px,-2px);}
+
+  /* feature rows */
+  .feature-row{display:grid; grid-template-columns:220px 1fr; gap:20px; align-items:start; padding:18px 22px; border-top:1px solid var(--line);}
+  .feature-row:first-child{border-top:none;}
+  .feature-name{font-family:"Space Grotesk",sans-serif; font-weight:600; font-size:14px; color:var(--ink-100); letter-spacing:-.1px;}
+  .feature-desc{font-size:13px; line-height:1.6; color:var(--ink-300);}
+
+  /* connect */
+  .connect-inner{padding:26px 22px;}
+  .connect-bio{font-size:14.5px; line-height:1.7; color:var(--ink-300); max-width:560px; margin-bottom:22px;}
+  .connect-links{display:flex; gap:12px; flex-wrap:wrap;}
+  .connect-links a{
+    display:inline-flex; align-items:center; gap:8px; text-decoration:none;
+    color:var(--ink-100); font-size:13px; letter-spacing:.5px;
+    border:1px solid var(--line-2); padding:11px 16px; transition:border-color .2s, color .2s;
+  }
+  .connect-links a::after{content:"\2197"; color:var(--ink-500);}
+  .connect-links a:hover{border-color:var(--signal); color:var(--signal);}
+
+  .foot{margin-top:64px; padding-top:22px; border-top:1px solid var(--line); display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; font-size:11px; letter-spacing:1px; color:var(--ink-500); text-transform:uppercase;}
+
+  @media (max-width:640px){
+    .nav .links a:not(:last-child):not(:nth-last-child(2)){display:none;}
+    .score-row{grid-template-columns:110px 1fr 44px; gap:12px;}
+    .setup-row{grid-template-columns:1fr auto; gap:8px;}
+    .setup-row .setup-db{display:none;}
+    .feature-row{grid-template-columns:1fr; gap:6px;}
+    .pipe-badge{display:none;}
+  }
+</style>
 </head>
-<body>
+<body class="is-loading">
+  <div class="bg-grid"></div>
 
-<!-- Nav -->
-<nav class="nav">
-  <a href="https://hemantkumar.dev" class="nav-logo">HK</a>
-  <div class="nav-right">
-    <a href="#pipeline" class="nav-link">Pipeline</a>
-    <a href="#setup"    class="nav-link">Setup</a>
-    <a href="#features" class="nav-link">Features</a>
-    <a href="https://github.com/hkcodebase/snarky-squirrel" target="_blank" class="nav-link">GitHub</a>
-    <button id="theme-toggle" class="theme-btn" aria-label="Toggle theme" title="Toggle light / dark">◐</button>
+  <!-- ============ LOADER OVERLAY ============ -->
+  <div class="loader-overlay" id="overlay">
+    <div class="lo-glow"></div>
+    <div class="stage">
+      <div class="scene">
+        <div class="cube-wrap">
+          <div class="cube">
+            <div class="floor"></div>
+            <div class="face f-front"><div class="glyph">🐿<small>SNARKY SQUIRREL</small></div></div>
+            <div class="face f-back"><div class="glyph">PR<small>REVIEWER</small></div></div>
+            <div class="face f-right"><div class="glyph">⚲<small>SECURITY</small></div></div>
+            <div class="face f-left"><div class="glyph">{ }<small>CODE QUALITY</small></div></div>
+            <div class="face f-top"><div class="glyph">◆<small>LANGGRAPH</small></div></div>
+            <div class="face f-bottom"><div class="glyph">∑<small>SCORE</small></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="mark">
+        <div class="name">snarky<span class="dev">·squirrel</span></div>
+        <div class="role">Multi-Agent · LangGraph · Bedrock</div>
+      </div>
+      <div class="loader">
+        <div class="row">
+          <span class="status" id="status">Booting supervisor</span>
+          <span class="pct" id="pct">00%</span>
+        </div>
+        <div class="track"><div class="barfill" id="bar"></div></div>
+        <div class="ticks"><span>SUPERVISOR</span><span>SECURITY</span><span>QUALITY</span><span>SCORE</span></div>
+      </div>
+    </div>
+    <div class="lo-vignette"></div>
   </div>
-</nav>
 
-<main>
+  <!-- ============ SITE ============ -->
+  <main class="site">
+    <nav class="nav">
+      <a class="brand" href="https://hemantkumar.dev" target="_blank" rel="noopener">HK</a>
+      <div class="links">
+        <a href="#pipeline">Pipeline</a>
+        <a href="#setup">Setup</a>
+        <a href="#features">Features</a>
+        <a href="https://github.com/hkcodebase/snarky-squirrel" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </nav>
 
-  <!-- Hero -->
-  <section class="hero">
-    <p class="hero-name">Snarky Squirrel</p>
-    <p class="hero-role">Agentic PR Reviewer</p>
-    <p class="hero-bio">
-      Automated pull-request reviewer that runs a multi-agent LangGraph pipeline,
-      scores code quality and security findings on a 0–10 scale, and optionally posts a
-      structured review comment to GitHub.
-      Built on AWS Bedrock (Claude Haiku), DynamoDB, FastAPI, and Cognito auth.
-    </p>
-    <div class="hero-meta">
-      <span>By <a href="https://hemantkumar.dev" target="_blank">Hemant Kumar</a></span>
-      <span>Source → <a href="https://github.com/hkcodebase/snarky-squirrel" target="_blank">github.com/hkcodebase/snarky-squirrel</a></span>
-    </div>
-  </section>
+    <header class="hero" id="top">
+      <div class="eyebrow">Agentic PR Reviewer</div>
+      <h1>Snarky Squirrel</h1>
+      <div class="sub"><span class="ln"></span> A multi-agent reviewer that reads your diff and scores it.</div>
+      <p>Automated pull-request reviewer that runs a multi-agent LangGraph pipeline, scores code quality and security findings on a 0–10 scale, and optionally posts a structured review comment to GitHub. Built on AWS Bedrock (Claude Haiku), DynamoDB, FastAPI, and Cognito auth.</p>
+      <div class="herometa">
+        <span>By <a href="https://hemantkumar.dev" target="_blank" rel="noopener">Hemant Kumar</a></span>
+        <span>Source → <a href="https://github.com/hkcodebase/snarky-squirrel" target="_blank" rel="noopener">github.com/hkcodebase/snarky-squirrel</a></span>
+      </div>
+    </header>
 
-  <!-- Sample Output -->
-  <section class="scores">
-    <p class="label">Sample Output</p>
-    <div class="box">
-      <div class="score-row">
-        <span class="score-name">Security</span>
-        <div class="score-bar-wrap"><div class="score-bar-fill" style="width:85%"></div></div>
-        <span class="score-val">8.5</span>
-      </div>
-      <div class="score-row">
-        <span class="score-name">Code Quality</span>
-        <div class="score-bar-wrap"><div class="score-bar-fill" style="width:70%"></div></div>
-        <span class="score-val">7.0</span>
-      </div>
-      <div class="score-row">
-        <span class="score-name">Critical Findings</span>
-        <div class="score-bar-wrap"><div class="score-bar-fill" style="width:0%"></div></div>
-        <span class="score-val">0</span>
-      </div>
-      <div class="score-row">
-        <span class="score-name">Should Block</span>
-        <div class="score-bar-wrap"><div class="score-bar-fill" style="width:0%"></div></div>
-        <span class="score-val">No</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- Agent Pipeline -->
-  <section id="pipeline" class="pipeline">
-    <p class="label">Agent Pipeline</p>
-    <div class="box">
-      <div class="pipe-row">
-        <span class="pipe-num">01</span>
-        <div class="pipe-body">
-          <p class="pipe-name">Supervisor</p>
-          <p class="pipe-desc">Routes the pipeline and decides agent execution order via the LLM.</p>
+    <!-- Sample Output -->
+    <section class="sec">
+      <p class="label">Sample Output</p>
+      <div class="box">
+        <div class="score-row">
+          <span class="score-name">Security</span>
+          <div class="score-bar-wrap"><div class="score-bar-fill" style="width:85%"></div></div>
+          <span class="score-val">8.5</span>
         </div>
-        <span class="pipe-badge"></span>
-      </div>
-      <div class="pipe-row">
-        <span class="pipe-num">02</span>
-        <div class="pipe-body">
-          <p class="pipe-name">Security Agent</p>
-          <p class="pipe-desc">Scans the PR diff for vulnerabilities. Runs first.</p>
+        <div class="score-row">
+          <span class="score-name">Code Quality</span>
+          <div class="score-bar-wrap"><div class="score-bar-fill" style="width:70%"></div></div>
+          <span class="score-val">7.0</span>
         </div>
-        <span class="pipe-badge">→ security_findings</span>
-      </div>
-      <div class="pipe-row">
-        <span class="pipe-num">03</span>
-        <div class="pipe-body">
-          <p class="pipe-name">Code Quality Agent</p>
-          <p class="pipe-desc">Checks style, complexity, and best practices using prior findings.</p>
+        <div class="score-row">
+          <span class="score-name">Critical Findings</span>
+          <div class="score-bar-wrap"><div class="score-bar-fill" style="width:0%"></div></div>
+          <span class="score-val">0</span>
         </div>
-        <span class="pipe-badge">→ code_quality_findings</span>
-      </div>
-      <div class="pipe-row">
-        <span class="pipe-num">04</span>
-        <div class="pipe-body">
-          <p class="pipe-name">PR Reviewer Agent</p>
-          <p class="pipe-desc">Produces a holistic review reading all prior findings.</p>
-        </div>
-        <span class="pipe-badge">→ pr_review_findings</span>
-      </div>
-      <div class="pipe-row">
-        <span class="pipe-num">05</span>
-        <div class="pipe-body">
-          <p class="pipe-name">Summary Agent</p>
-          <p class="pipe-desc">Aggregates all findings into a scored report and lineage trace.</p>
-        </div>
-        <span class="pipe-badge">→ summary_report</span>
-      </div>
-      <div class="formula-block">
-        <p class="formula-label">Score Formula</p>
-        <p class="formula-text">
-          score = 10 − (CRITICAL × 5 + HIGH × 2 + MEDIUM × 1 + LOW × 0.5)
-        </p>
-        <p class="formula-note">A CRITICAL finding sets should_block = true.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Setup -->
-  <section id="setup" class="setup">
-    <p class="label">Setup</p>
-    <div class="box">
-      <a href="https://github.com/hkcodebase/snarky-squirrel/blob/main/docs/setup-local.md" target="_blank" class="setup-row">
-        <span class="setup-name">Local — Ollama</span>
-        <span class="setup-label">Ollama (Gemma) in Docker</span>
-        <span class="setup-db">DynamoDB Local</span>
-        <span class="setup-arrow">↗</span>
-      </a>
-      <a href="https://github.com/hkcodebase/snarky-squirrel/blob/main/docs/setup-local.md" target="_blank" class="setup-row">
-        <span class="setup-name">Local — Docker Model</span>
-        <span class="setup-label">Docker Desktop built-in</span>
-        <span class="setup-db">DynamoDB Local</span>
-        <span class="setup-arrow">↗</span>
-      </a>
-      <a href="https://github.com/hkcodebase/snarky-squirrel/blob/main/docs/setup-aws.md" target="_blank" class="setup-row">
-        <span class="setup-name">AWS</span>
-        <span class="setup-label">Bedrock — Claude Haiku</span>
-        <span class="setup-db">AWS DynamoDB</span>
-        <span class="setup-arrow">↗</span>
-      </a>
-    </div>
-  </section>
-
-  <!-- Features -->
-  <section id="features" class="features">
-    <p class="label">Features</p>
-    <div class="box">
-      <div class="feature-row">
-        <span class="feature-name">Multi-agent pipeline</span>
-        <span class="feature-desc">LangGraph supervisor + specialist agents with shared DynamoDB memory.</span>
-      </div>
-      <div class="feature-row">
-        <span class="feature-name">Flexible LLM backends</span>
-        <span class="feature-desc">Ollama, Docker Model Runner, or AWS Bedrock — switched via one env var.</span>
-      </div>
-      <div class="feature-row">
-        <span class="feature-name">Cognito auth</span>
-        <span class="feature-desc">OAuth2 via AWS Cognito Hosted UI with RS256 JWT validation and invite-only access.</span>
-      </div>
-      <div class="feature-row">
-        <span class="feature-name">Data lineage</span>
-        <span class="feature-desc">Per-run agent trace stored in DynamoDB, surfaced in the web UI sidebar.</span>
-      </div>
-      <div class="feature-row">
-        <span class="feature-name">GitHub integration</span>
-        <span class="feature-desc">Fetches PR diffs via GitHub API. Posts review comments back — HMAC-verified webhooks.</span>
-      </div>
-      <div class="feature-row">
-        <span class="feature-name">Evaluation framework</span>
-        <span class="feature-desc">Offline, shadow, and online eval modes with thumbs feedback and aggregate metrics.</span>
-      </div>
-      <div class="feature-row">
-        <span class="feature-name">Cost</span>
-        <span class="feature-desc">~$0.05–0.12 per PR review on AWS (Bedrock Haiku + DynamoDB on-demand + t3.micro).</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- Links -->
-  <section class="connect">
-    <p class="label">Links</p>
-    <div class="box">
-      <div class="connect-inner">
-        <p class="connect-bio">
-          Questions, issues, or ideas — open a GitHub issue or reach out directly.
-        </p>
-        <div class="connect-links">
-          <a href="https://github.com/hkcodebase/snarky-squirrel" target="_blank" class="connect-link">GitHub</a>
-          <a href="https://github.com/hkcodebase/snarky-squirrel/issues" target="_blank" class="connect-link">Issues</a>
-          <a href="https://hemantkumar.dev" target="_blank" class="connect-link">hemantkumar.dev</a>
+        <div class="score-row">
+          <span class="score-name">Should Block</span>
+          <div class="score-bar-wrap"><div class="score-bar-fill" style="width:0%"></div></div>
+          <span class="score-val" style="color:var(--ok)">No</span>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-</main>
+    <!-- Agent Pipeline -->
+    <section class="sec" id="pipeline">
+      <p class="label">Agent Pipeline</p>
+      <div class="box">
+        <div class="pipe-row">
+          <span class="pipe-num">01</span>
+          <div class="pipe-body">
+            <p class="pipe-name">Supervisor</p>
+            <p class="pipe-desc">Routes the pipeline and decides agent execution order via the LLM.</p>
+          </div>
+          <span class="pipe-badge"></span>
+        </div>
+        <div class="pipe-row">
+          <span class="pipe-num">02</span>
+          <div class="pipe-body">
+            <p class="pipe-name">Security Agent</p>
+            <p class="pipe-desc">Scans the PR diff for vulnerabilities. Runs first.</p>
+          </div>
+          <span class="pipe-badge">→ security_findings</span>
+        </div>
+        <div class="pipe-row">
+          <span class="pipe-num">03</span>
+          <div class="pipe-body">
+            <p class="pipe-name">Code Quality Agent</p>
+            <p class="pipe-desc">Checks style, complexity, and best practices using prior findings.</p>
+          </div>
+          <span class="pipe-badge">→ code_quality_findings</span>
+        </div>
+        <div class="pipe-row">
+          <span class="pipe-num">04</span>
+          <div class="pipe-body">
+            <p class="pipe-name">PR Reviewer Agent</p>
+            <p class="pipe-desc">Produces a holistic review reading all prior findings.</p>
+          </div>
+          <span class="pipe-badge">→ pr_review_findings</span>
+        </div>
+        <div class="pipe-row">
+          <span class="pipe-num">05</span>
+          <div class="pipe-body">
+            <p class="pipe-name">Summary Agent</p>
+            <p class="pipe-desc">Aggregates all findings into a scored report and lineage trace.</p>
+          </div>
+          <span class="pipe-badge">→ summary_report</span>
+        </div>
+        <div class="formula-block">
+          <p class="formula-label">Score Formula</p>
+          <p class="formula-text">score = 10 − (CRITICAL × 5 + HIGH × 2 + MEDIUM × 1 + LOW × 0.5)</p>
+          <p class="formula-note">A CRITICAL finding sets should_block = true.</p>
+        </div>
+      </div>
+    </section>
 
-<footer>
-  <span>© 2026 Hemant Kumar</span>
-  <span>GitHub Pages · snarky-squirrel</span>
-</footer>
+    <!-- Setup -->
+    <section class="sec" id="setup">
+      <p class="label">Setup</p>
+      <div class="box">
+        <a href="https://github.com/hkcodebase/snarky-squirrel/blob/main/docs/setup-local.md" target="_blank" rel="noopener" class="setup-row">
+          <span class="setup-name">Local — Ollama</span>
+          <span class="setup-label">Ollama (Gemma) in Docker</span>
+          <span class="setup-db">DynamoDB Local</span>
+          <span class="setup-arrow">↗</span>
+        </a>
+        <a href="https://github.com/hkcodebase/snarky-squirrel/blob/main/docs/setup-local.md" target="_blank" rel="noopener" class="setup-row">
+          <span class="setup-name">Local — Docker Model</span>
+          <span class="setup-label">Docker Desktop built-in</span>
+          <span class="setup-db">DynamoDB Local</span>
+          <span class="setup-arrow">↗</span>
+        </a>
+        <a href="https://github.com/hkcodebase/snarky-squirrel/blob/main/docs/setup-aws.md" target="_blank" rel="noopener" class="setup-row">
+          <span class="setup-name">AWS</span>
+          <span class="setup-label">Bedrock — Claude Haiku</span>
+          <span class="setup-db">AWS DynamoDB</span>
+          <span class="setup-arrow">↗</span>
+        </a>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section class="sec" id="features">
+      <p class="label">Features</p>
+      <div class="box">
+        <div class="feature-row"><span class="feature-name">Multi-agent pipeline</span><span class="feature-desc">LangGraph supervisor + specialist agents with shared DynamoDB memory.</span></div>
+        <div class="feature-row"><span class="feature-name">Flexible LLM backends</span><span class="feature-desc">Ollama, Docker Model Runner, or AWS Bedrock — switched via one env var.</span></div>
+        <div class="feature-row"><span class="feature-name">Cognito auth</span><span class="feature-desc">OAuth2 via AWS Cognito Hosted UI with RS256 JWT validation and invite-only access.</span></div>
+        <div class="feature-row"><span class="feature-name">Data lineage</span><span class="feature-desc">Per-run agent trace stored in DynamoDB, surfaced in the web UI sidebar.</span></div>
+        <div class="feature-row"><span class="feature-name">GitHub integration</span><span class="feature-desc">Fetches PR diffs via GitHub API. Posts review comments back — HMAC-verified webhooks.</span></div>
+        <div class="feature-row"><span class="feature-name">Evaluation framework</span><span class="feature-desc">Offline, shadow, and online eval modes with thumbs feedback and aggregate metrics.</span></div>
+        <div class="feature-row"><span class="feature-name">Cost</span><span class="feature-desc">~$0.05–0.12 per PR review on AWS (Bedrock Haiku + DynamoDB on-demand + t3.micro).</span></div>
+      </div>
+    </section>
+
+    <!-- Links -->
+    <section class="sec">
+      <p class="label">Links</p>
+      <div class="box">
+        <div class="connect-inner">
+          <p class="connect-bio">Questions, issues, or ideas — open a GitHub issue or reach out directly.</p>
+          <div class="connect-links">
+            <a href="https://github.com/hkcodebase/snarky-squirrel" target="_blank" rel="noopener">GitHub</a>
+            <a href="https://github.com/hkcodebase/snarky-squirrel/issues" target="_blank" rel="noopener">Issues</a>
+            <a href="https://hemantkumar.dev" target="_blank" rel="noopener">hemantkumar.dev</a>
+          </div>
+        </div>
+      </div>
+      <div class="foot">
+        <span>© 2026 Hemant Kumar</span>
+        <span>GitHub Pages · snarky-squirrel</span>
+      </div>
+    </section>
+  </main>
 
 <script>
-  document.getElementById('theme-toggle').addEventListener('click', function () {
-    var isDark = document.documentElement.classList.toggle('dark');
-    localStorage.setItem('hk-theme', isDark ? 'dark' : 'light');
-  });
+  const stages = [
+    [0,  "Booting supervisor"],
+    [24, "Running security agent"],
+    [48, "Scoring code quality"],
+    [70, "Aggregating findings"],
+    [90, "Building report"],
+    [100,"Review ready"]
+  ];
+  const barEl = document.getElementById('bar');
+  const pctEl = document.getElementById('pct');
+  const statusEl = document.getElementById('status');
+  const overlay = document.getElementById('overlay');
+
+  let p = 0;
+  function tick(){
+    const remaining = 100 - p;
+    const step = Math.max(0.5, remaining * 0.04) + Math.random()*1.4;
+    p = Math.min(100, p + step);
+    barEl.style.width = p + '%';
+    pctEl.textContent = String(Math.floor(p)).padStart(2,'0') + '%';
+    let label = stages[0][1];
+    for(const [thr,txt] of stages){ if(p >= thr) label = txt; }
+    statusEl.textContent = label;
+    if(p < 100){ setTimeout(tick, 80 + Math.random()*130); }
+    else { statusEl.textContent = "Review ready"; setTimeout(reveal, 520); }
+  }
+  function reveal(){
+    overlay.classList.add('done');
+    document.body.classList.remove('is-loading');
+    document.body.classList.add('loaded');
+  }
+  setTimeout(tick, 400);
+  window.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key==='Escape'){ p=100; reveal(); }});
+  overlay.addEventListener('click', ()=>{ if(p>4){ p=100; reveal(); }});
 </script>
-
-<!-- GoatCounter analytics — replace YOUR-CODE with your GoatCounter site code -->
-<script data-goatcounter="https://YOUR-CODE.goatcounter.com/count"
-        async src="//gc.zgo.at/count.js"></script>
-
 </body>
 </html>
